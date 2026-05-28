@@ -155,20 +155,27 @@ jobs:
           RPM_SIGNING_KEY_ID: ${{ secrets.RPM_SIGNING_KEY_ID }}
           RPM_SIGNING_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
         run: |
-          cd "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          repo_root="$PWD"
+          if [ ! -f "$repo_root/scripts/publish-github-pages-repo.mjs" ]; then
+            repo_root="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
+          fi
+          [ -f "$repo_root/scripts/publish-github-pages-repo.mjs" ] || {
+            echo "Could not locate repository root for DNF metadata publishing" >&2
+            exit 1
+          }
+          cd "$repo_root"
+
+          repo_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages
-            git worktree add pages -B gh-pages origin/gh-pages
+          rm -rf pages
+          if git ls-remote --exit-code --heads "$repo_url" gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "$repo_url" pages
           else
-            git worktree add --detach pages HEAD
-            cd pages
-            git checkout --orphan gh-pages
-            git rm -rf .
-            cd "$GITHUB_WORKSPACE"
+            mkdir pages
+            git -C pages init -b gh-pages
+            git -C pages remote add origin "$repo_url"
           fi
 
           node scripts/publish-github-pages-repo.mjs \
@@ -182,13 +189,12 @@ jobs:
             --gpg-key-id "$RPM_SIGNING_KEY_ID" \
             --arch x86_64
 
-          cd pages
-          git add .
-          if git diff --cached --quiet; then
+          git -C pages add .
+          if git -C pages diff --cached --quiet; then
             echo "No DNF repository metadata changes."
           else
-            git commit -m "Publish RPM repository for $RELEASE_TAG"
-            git push origin gh-pages
+            git -C pages commit -m "Publish RPM repository for $RELEASE_TAG"
+            git -C pages push origin gh-pages
           fi
 
           if gh api "repos/$GITHUB_REPOSITORY/pages" >/dev/null 2>&1; then
