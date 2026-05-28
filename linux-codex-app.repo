@@ -1,0 +1,7 @@
+[linux-codex-app]
+name=Linux Codex App
+baseurl=https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://kkkzbh.github.io/linux-codex-app/RPM-GPG-KEY-linux-codex-app
