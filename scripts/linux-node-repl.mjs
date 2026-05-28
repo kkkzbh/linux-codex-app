@@ -1,0 +1,666 @@
+#!/usr/bin/env node
+
+import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import net from "node:net";
+import process from "node:process";
+
+const serverInfo = {
+  name: "node_repl",
+  version: "0.1.0-linux",
+};
+
+const tools = [
+  {
+    name: "js",
+    description:
+      "Run JavaScript in a persistent Node-backed kernel with top-level await. This is the JavaScript execution tool for the node_repl MCP server.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          description: "JavaScript source to execute.",
+        },
+        timeout_ms: {
+          type: "number",
+          description: "Optional execution timeout in milliseconds.",
+        },
+      },
+      required: ["code"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "js_reset",
+    description: "Reset the persistent JavaScript kernel and clear bindings created by prior js calls.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+];
+
+let currentExec = null;
+let kernel = createKernel();
+let jsQueue = Promise.resolve();
+
+function send(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function sendResult(id, result) {
+  send({ jsonrpc: "2.0", id, result });
+}
+
+function sendError(id, code, message, data) {
+  send({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
+}
+
+function createKernel() {
+  const state = {
+    responseMeta: {},
+    output: [],
+    images: [],
+    requestMeta: {},
+  };
+
+  const sandbox = {};
+  const nativePipe = {
+    async createConnection(socketPath) {
+      if (typeof socketPath !== "string" || socketPath.length === 0) {
+        throw new Error("native pipe connect expected path");
+      }
+
+      return await new Promise((resolve, reject) => {
+        const socket = net.createConnection(socketPath);
+        socket.once("connect", () => resolve(socket));
+        socket.once("error", reject);
+      });
+    },
+  };
+
+  const nodeRepl = {
+    cwd: process.cwd(),
+    homeDir: homedir(),
+    tmpDir: tmpdir(),
+    get requestMeta() {
+      return state.requestMeta;
+    },
+    setResponseMeta(meta) {
+      if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+        throw new Error("js response metadata must be an object");
+      }
+
+      state.responseMeta = { ...state.responseMeta, ...meta };
+    },
+    write(value) {
+      state.output.push(String(value));
+    },
+    async emitImage(imageLike) {
+      const image = await normalizeImage(await imageLike);
+      state.images.push(image);
+    },
+    async createElicitation(request) {
+      return createElicitation(await request);
+    },
+    async fetch(url, init = {}) {
+      return limitedFetch(url, init);
+    },
+  };
+
+  Object.assign(globalThis, {
+    __codexNativePipe: nativePipe,
+    nodeRepl,
+  });
+
+  Object.assign(sandbox, {
+    Buffer,
+    URL,
+    URLSearchParams,
+    TextDecoder,
+    TextEncoder,
+    AbortController,
+    AbortSignal,
+    clearInterval,
+    clearTimeout,
+    console: createConsole(state),
+    fetch,
+    global: sandbox,
+    globalThis: sandbox,
+    nodeRepl,
+    process: createProcessShim(),
+    setInterval,
+    setTimeout,
+    __codexNativePipe: nativePipe,
+  });
+
+  return { sandbox, state };
+}
+
+function createProcessShim() {
+  const listeners = new Map();
+
+  return {
+    env: process.env,
+    version: process.version,
+    versions: process.versions,
+    pid: process.pid,
+    argv: ["node", "node_repl"],
+    cwd: () => process.cwd(),
+    uptime: () => process.uptime(),
+    memoryUsage: () => process.memoryUsage(),
+    on(event, listener) {
+      const set = listeners.get(event) ?? new Set();
+      set.add(listener);
+      listeners.set(event, set);
+      return this;
+    },
+    off(event, listener) {
+      listeners.get(event)?.delete(listener);
+      return this;
+    },
+    listeners(event) {
+      return Array.from(listeners.get(event) ?? []);
+    },
+    exit(code = 0) {
+      throw new Error(`process.exit(${code}) called`);
+    },
+  };
+}
+
+function createConsole(state) {
+  function push(args) {
+    state.output.push(`${args.map(formatValue).join(" ")}\n`);
+  }
+
+  return {
+    debug: (...args) => push(args),
+    error: (...args) => push(args),
+    info: (...args) => push(args),
+    log: (...args) => push(args),
+    warn: (...args) => push(args),
+  };
+}
+
+function formatValue(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function normalizeImage(value) {
+  if (typeof value === "string") {
+    if (!value.startsWith("data:image/")) {
+      throw new Error("nodeRepl.emitImage only accepts image/* data URLs");
+    }
+
+    const [meta, base64] = value.split(",", 2);
+    if (!base64 || !meta.includes(";base64")) {
+      throw new Error("nodeRepl.emitImage received a malformed data URL");
+    }
+
+    return {
+      type: "image",
+      data: base64,
+      mimeType: meta.slice("data:".length, meta.indexOf(";")),
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    throw new Error("nodeRepl.emitImage received an unsupported value");
+  }
+
+  const mimeType = value.mimeType;
+  if (typeof mimeType !== "string" || !mimeType.startsWith("image/")) {
+    throw new Error("nodeRepl.emitImage expected an image/* mimeType");
+  }
+
+  const bytes = value.bytes;
+  if (
+    !(
+      Buffer.isBuffer(bytes) ||
+      bytes instanceof Uint8Array ||
+      bytes instanceof ArrayBuffer ||
+      ArrayBuffer.isView(bytes)
+    )
+  ) {
+    throw new Error("nodeRepl.emitImage expected bytes to be Buffer, Uint8Array, ArrayBuffer, or ArrayBufferView");
+  }
+
+  return {
+    type: "image",
+    data: Buffer.from(bytes.buffer ?? bytes, bytes.byteOffset ?? 0, bytes.byteLength ?? undefined).toString("base64"),
+    mimeType,
+  };
+}
+
+async function createElicitation(request) {
+  const normalized = normalizeElicitationRequest(request);
+  const browserApproval = getBrowserApprovalRequest(normalized);
+
+  if (browserApproval?.origin && isLocalOrigin(browserApproval.origin)) {
+    return { action: "accept" };
+  }
+
+  if (browserApproval) {
+    return requestDesktopBrowserApproval(normalized);
+  }
+
+  return { action: "decline" };
+}
+
+function normalizeElicitationRequest(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("nodeRepl.createElicitation expected a request object");
+  }
+
+  if (typeof value.message !== "string" || value.message.trim() === "") {
+    throw new Error("nodeRepl.createElicitation expected a non-empty message");
+  }
+
+  return {
+    message: value.message,
+    ...(value.meta && typeof value.meta === "object" ? { meta: value.meta } : {}),
+    ...(value.requestedSchema && typeof value.requestedSchema === "object"
+      ? { requestedSchema: value.requestedSchema }
+      : {}),
+  };
+}
+
+function isLocalOrigin(origin) {
+  if (typeof origin !== "string") {
+    return false;
+  }
+
+  if (origin.startsWith("file:")) {
+    return true;
+  }
+
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHttpOrigin(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function getBrowserApprovalRequest(request) {
+  const meta = request?.meta;
+  if (!meta || typeof meta !== "object") {
+    return null;
+  }
+
+  if (
+    meta.codex_approval_kind !== "mcp_tool_call" ||
+    meta.connector_id !== "browser-use"
+  ) {
+    return null;
+  }
+
+  if (meta.tool_name === "access_browser_origin") {
+    const origin = normalizeHttpOrigin(meta.tool_params?.origin ?? meta.origin);
+    return origin ? { kind: "origin", origin } : null;
+  }
+
+  if (meta.sensitive_data === "browsing_history") {
+    return { kind: "history" };
+  }
+
+  if (meta.file_transfer === "download" || meta.file_transfer === "upload") {
+    const origin = normalizeHttpOrigin(meta.origin);
+    return origin ? { kind: "fileTransfer", transferKind: meta.file_transfer, origin } : null;
+  }
+
+  return null;
+}
+
+async function requestDesktopBrowserApproval(request) {
+  const socketPath = getDesktopSocketEnv("CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET");
+  if (!socketPath) {
+    throw new Error(
+      "Linux browser approval bridge unavailable: CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET is not set in node_repl or parent app-server environment",
+    );
+  }
+
+  let message;
+  try {
+    message = await requestUnixJson(socketPath, request, {
+      description: "Codex desktop browser approval",
+      timeoutMs: 120_000,
+    });
+  } catch (error) {
+    throw new Error(
+      `Linux browser approval bridge unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (message == null || typeof message !== "object") {
+    throw new Error("Codex desktop browser approval returned an invalid response");
+  }
+  if (message.ok !== true) {
+    throw new Error(message.error || "Codex desktop browser approval failed");
+  }
+  if (message.action === "accept" || message.action === "decline" || message.action === "cancel") {
+    return { action: message.action };
+  }
+
+  throw new Error("Codex desktop browser approval returned an invalid action");
+}
+
+async function limitedFetch(url, init = {}) {
+  const parsed = new URL(String(url));
+  const method = String(init.method ?? "GET").toUpperCase();
+
+  if (
+    parsed.origin !== "https://chatgpt.com" ||
+    parsed.pathname !== "/backend-api/aura/site_status" ||
+    method !== "GET"
+  ) {
+    throw new Error("nodeRepl.fetch URL is not allowlisted");
+  }
+
+  return fetchViaCodexDesktop(parsed);
+}
+
+async function fetchViaCodexDesktop(parsed) {
+  const socketPath = getDesktopSocketEnv("CODEX_DESKTOP_AUTH_FETCH_SOCKET");
+  if (!socketPath) {
+    throw new Error(
+      "Codex desktop auth fetch unavailable: CODEX_DESKTOP_AUTH_FETCH_SOCKET is not set in node_repl or parent app-server environment",
+    );
+  }
+
+  const message = await requestUnixJson(socketPath, {
+    method: "GET",
+    url: parsed.toString(),
+  }, {
+    description: "Codex desktop auth fetch",
+    timeoutMs: 60_000,
+  });
+
+  if (message == null || typeof message !== "object") {
+    throw new Error("Codex desktop auth fetch returned an invalid response");
+  }
+  if (message.ok !== true) {
+    throw new Error(message.error || "Codex desktop auth fetch failed");
+  }
+
+  return new Response(Buffer.from(String(message.bodyBase64 ?? ""), "base64"), {
+    status: Number.isInteger(message.status) ? message.status : 502,
+    statusText: typeof message.statusText === "string" ? message.statusText : "",
+    headers: message.headers && typeof message.headers === "object" ? message.headers : {},
+  });
+}
+
+async function requestUnixJson(socketPath, payload, options = {}) {
+  const description = options.description ?? "Codex desktop socket";
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, Number(options.timeoutMs)) : 60_000;
+
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    const chunks = [];
+    const timer = setTimeout(() => {
+      socket.destroy(new Error(`${description} timed out`));
+    }, timeoutMs);
+
+    socket.once("connect", () => {
+      socket.end(JSON.stringify(payload));
+    });
+
+    socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    socket.once("end", () => {
+      clearTimeout(timer);
+      try {
+        const body = Buffer.concat(chunks).toString("utf8");
+        if (!body) {
+          throw new Error(`${description} returned an empty response`);
+        }
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function getDesktopSocketEnv(name) {
+  const direct = process.env[name];
+  if (direct && direct.trim()) {
+    return direct;
+  }
+
+  if (process.platform !== "linux" || !process.ppid) {
+    return null;
+  }
+
+  try {
+    const parentEnv = readFileSync(`/proc/${process.ppid}/environ`, "utf8");
+    for (const entry of parentEnv.split("\0")) {
+      const separator = entry.indexOf("=");
+      if (separator <= 0) {
+        continue;
+      }
+      if (entry.slice(0, separator) !== name) {
+        continue;
+      }
+      const value = entry.slice(separator + 1);
+      if (value.trim()) {
+        process.env[name] = value;
+        return value;
+      }
+    }
+  } catch {
+    // Fall through to the explicit missing-environment error at the call site.
+  }
+
+  return null;
+}
+
+async function executeJs(args, requestMeta) {
+  const code = args?.code ?? args?.input ?? args?.source;
+
+  if (typeof code !== "string" || code.trim() === "") {
+    throw new Error("js expects non-empty JavaScript source");
+  }
+
+  const timeoutMs = Number.isFinite(args?.timeout_ms) ? Math.max(1, Number(args.timeout_ms)) : 120_000;
+  const execId = randomUUID();
+  const state = kernel.state;
+  state.output = [];
+  state.images = [];
+  state.responseMeta = {};
+  state.requestMeta = requestMeta ?? {};
+
+  currentExec = { id: execId };
+
+  try {
+    const result = await withTimeout(runCode(code), timeoutMs);
+    if (result !== undefined) {
+      state.output.push(`${formatValue(result)}\n`);
+    }
+
+    return buildToolResult(state);
+  } finally {
+    currentExec = null;
+  }
+}
+
+async function runCode(code) {
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const wrapped = new AsyncFunction(
+    "sandbox",
+    `with (sandbox) { return await (async () => {\n${code}\n})(); }`,
+  );
+
+  return await wrapped(kernel.sandbox);
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error("js execution timed out")), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+}
+
+function buildToolResult(state) {
+  const text = state.output.join("");
+  const content = [];
+
+  if (text.length > 0) {
+    content.push({ type: "text", text });
+  }
+
+  content.push(...state.images);
+
+  if (content.length === 0) {
+    content.push({ type: "text", text: "" });
+  }
+
+  return {
+    content,
+    ...(Object.keys(state.responseMeta).length === 0 ? {} : { _meta: state.responseMeta }),
+  };
+}
+
+function resetKernel() {
+  kernel = createKernel();
+  return { content: [{ type: "text", text: "js execution reset" }] };
+}
+
+async function handleRequest(message) {
+  switch (message.method) {
+    case "initialize":
+      sendResult(message.id, {
+        protocolVersion: message.params?.protocolVersion ?? "2025-06-18",
+        capabilities: {
+          tools: {},
+        },
+        serverInfo,
+        instructions: "Use js to run JavaScript in the persistent Node-backed kernel.",
+      });
+      return;
+    case "ping":
+      sendResult(message.id, {});
+      return;
+    case "tools/list":
+      sendResult(message.id, { tools });
+      return;
+    case "tools/call": {
+      const toolName = message.params?.name;
+      const args = message.params?.arguments ?? {};
+      const requestMeta = message.params?._meta ?? message.params?.meta ?? {};
+
+      try {
+        if (toolName === "js") {
+          const result = await enqueueJsOperation(() => executeJs(args, requestMeta));
+          sendResult(message.id, result);
+          return;
+        }
+
+        if (toolName === "js_reset") {
+          const result = await enqueueJsOperation(() => resetKernel());
+          sendResult(message.id, result);
+          return;
+        }
+
+        throw new Error(`Unknown tool: ${toolName}`);
+      } catch (error) {
+        sendResult(message.id, {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          isError: true,
+        });
+      }
+      return;
+    }
+    default:
+      sendError(message.id, -32601, `Method not found: ${message.method}`);
+  }
+}
+
+async function enqueueJsOperation(operation) {
+  const run = jsQueue.then(operation, operation);
+  jsQueue = run.catch(() => {});
+  return await run;
+}
+
+function handleNotification(message) {
+  if (message.method === "notifications/cancelled" && currentExec != null) {
+    currentExec = null;
+  }
+}
+
+let inputBuffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  inputBuffer += chunk;
+
+  for (;;) {
+    const newline = inputBuffer.indexOf("\n");
+    if (newline < 0) {
+      break;
+    }
+
+    const line = inputBuffer.slice(0, newline).replace(/\r$/, "");
+    inputBuffer = inputBuffer.slice(newline + 1);
+
+    if (line.trim() === "") {
+      continue;
+    }
+
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      sendError(null, -32700, error instanceof Error ? error.message : String(error));
+      continue;
+    }
+
+    if (Object.hasOwn(message, "id") && (Object.hasOwn(message, "result") || Object.hasOwn(message, "error"))) {
+      continue;
+    }
+
+    if (Object.hasOwn(message, "id")) {
+      handleRequest(message).catch((error) => {
+        sendError(message.id, -32603, error instanceof Error ? error.message : String(error));
+      });
+    } else {
+      handleNotification(message);
+    }
+  }
+});
+
+process.stdin.resume();

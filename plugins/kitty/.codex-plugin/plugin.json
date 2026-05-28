@@ -1,0 +1,45 @@
+{
+  "name": "kitty",
+  "version": "0.1.2",
+  "description": "Linux kitty terminal tools for Codex, using managed and adopted kitty remote-control sockets for command runs, terminal reads, layout control, and explicit interactive input.",
+  "author": {
+    "name": "linux-codex-app"
+  },
+  "homepage": "https://sw.kovidgoyal.net/kitty/",
+  "repository": "https://github.com/kkkzbh/linux-codex-app",
+  "license": "MIT",
+  "keywords": [
+    "kitty",
+    "terminal",
+    "linux",
+    "kde",
+    "remote-control"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Kitty",
+    "shortDescription": "Run and inspect commands in controlled kitty terminals",
+    "longDescription": "Kitty gives Codex Linux-native terminal tools for opening managed kitty instances with visible short IDs, adopting future user-opened kitty launches through a user-level wrapper, running commands in new controlled tabs, windows, and splits, reading terminal output, changing layouts, focusing windows, sending explicit interactive input, and closing controlled terminal targets. The tools return display names and selector objects for easier targeting, and kitty_run can automatically close the initial empty managed shell when it opens a new instance for a command. It uses kitty's remote-control socket interface and does not change the user's global kitty configuration, use TCP sockets, retroactively adopt old terminals without sockets, or inject commands into existing user panes by default.",
+    "developerName": "linux-codex-app",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://sw.kovidgoyal.net/kitty/",
+    "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
+    "defaultPrompt": [
+      "Open a managed kitty terminal",
+      "Run this command in kitty",
+      "Read the latest kitty output",
+      "Split the kitty terminal"
+    ],
+    "brandColor": "#6C4BD8",
+    "composerIcon": "./assets/kitty.png",
+    "logo": "./assets/kitty.png",
+    "screenshots": []
+  }
+}

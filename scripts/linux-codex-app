@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT="${LINUX_CODEX_APP_ROOT:-/opt/linux-codex-app}"
+CURRENT_RUNTIME="${LINUX_CODEX_APP_CURRENT:-$APP_ROOT/current}"
+LIBEXEC_ROOT="${LINUX_CODEX_APP_LIBEXEC:-/usr/libexec/linux-codex-app}"
+SHARE_ROOT="${LINUX_CODEX_APP_SHARE:-/usr/share/linux-codex-app}"
+VERIFY_SCRIPT="$LIBEXEC_ROOT/scripts/verify-install.sh"
+UPSTREAM_MANIFEST="$SHARE_ROOT/upstream.json"
+
+usage() {
+    cat >&2 <<EOF
+Usage: linux-codex-app <command>
+
+Commands:
+  status
+  verify
+  enable <dolphin-window-access|kitty-window-access>
+  disable <dolphin-window-access|kitty-window-access>
+EOF
+}
+
+info() {
+    printf '[INFO] %s\n' "$*" >&2
+}
+
+warn() {
+    printf '[WARN] %s\n' "$*" >&2
+}
+
+error() {
+    printf '[ERROR] %s\n' "$*" >&2
+    exit 1
+}
+
+refresh_desktop_cache() {
+    local applications_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$applications_dir" >/dev/null 2>&1 || true
+    fi
+
+    if command -v kbuildsycoca6 >/dev/null 2>&1; then
+        kbuildsycoca6 >/dev/null 2>&1 || true
+    elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+        kbuildsycoca5 >/dev/null 2>&1 || true
+    fi
+}
+
+restore_marked_desktop_entry() {
+    local path="$1"
+    local marker="$2"
+    local backup
+
+    [ -f "$path" ] || return 0
+    grep -q "$marker" "$path" 2>/dev/null || return 0
+
+    backup="$(find "$(dirname "$path")" -maxdepth 1 -type f -name "$(basename "$path").codex-backup-*" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n1 | cut -d' ' -f2-)"
+    if [ -n "$backup" ] && [ -f "$backup" ]; then
+        cp -p "$backup" "$path"
+        info "Restored desktop entry from backup: $path"
+    else
+        rm -f "$path"
+        info "Removed Codex-managed desktop entry override: $path"
+    fi
+}
+
+remove_marked_wrapper() {
+    local path="$1"
+    local marker="$2"
+
+    [ -f "$path" ] || return 0
+    grep -q "$marker" "$path" 2>/dev/null || return 0
+    rm -f "$path"
+    info "Removed Codex-managed wrapper: $path"
+}
+
+status_command() {
+    printf 'runtime=%s\n' "$CURRENT_RUNTIME"
+
+    if [ -f "$UPSTREAM_MANIFEST" ]; then
+        node -e '
+const fs = require("node:fs");
+const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+console.log(`app_version=${manifest.appVersion}`);
+console.log(`app_build=${manifest.appBuildNumber}`);
+console.log(`rpm_version=${manifest.rpmVersion}`);
+console.log(`rpm_release=${manifest.rpmRelease}`);
+console.log(`electron=${manifest.electron?.version ?? ""}`);
+console.log(`codex_cli=${manifest.codexCli?.version ?? ""}`);
+' "$UPSTREAM_MANIFEST"
+    else
+        printf 'manifest=missing:%s\n' "$UPSTREAM_MANIFEST"
+    fi
+
+    if [ -x "$CURRENT_RUNTIME/start.sh" ]; then
+        printf 'launcher=ready\n'
+    else
+        printf 'launcher=missing:%s/start.sh\n' "$CURRENT_RUNTIME"
+    fi
+
+    if [ -d "$SHARE_ROOT/plugins" ]; then
+        find "$SHARE_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf 'plugin=%f\n' | sort
+    fi
+}
+
+verify_command() {
+    [ -x "$VERIFY_SCRIPT" ] || error "verify helper missing: $VERIFY_SCRIPT"
+    [ -d "$CURRENT_RUNTIME" ] || error "runtime missing: $CURRENT_RUNTIME"
+    "$VERIFY_SCRIPT" "$CURRENT_RUNTIME"
+}
+
+enable_command() {
+    case "${1:-}" in
+        dolphin-window-access)
+            [ -d "$SHARE_ROOT/plugins/dolphin" ] || error "Dolphin plugin package is not installed"
+            [ -x "$LIBEXEC_ROOT/scripts/install-dolphin-window-access.sh" ] || error "Dolphin enable helper missing"
+            "$LIBEXEC_ROOT/scripts/install-dolphin-window-access.sh"
+            ;;
+        kitty-window-access)
+            [ -d "$SHARE_ROOT/plugins/kitty" ] || error "Kitty plugin package is not installed"
+            [ -x "$LIBEXEC_ROOT/scripts/install-kitty-window-access.sh" ] || error "Kitty enable helper missing"
+            "$LIBEXEC_ROOT/scripts/install-kitty-window-access.sh"
+            ;;
+        *)
+            usage
+            error "Unknown feature: ${1:-}"
+            ;;
+    esac
+}
+
+disable_command() {
+    local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    local bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+
+    case "${1:-}" in
+        dolphin-window-access)
+            remove_marked_wrapper "$bin_home/dolphin" "Codex Dolphin window access wrapper"
+            restore_marked_desktop_entry "$data_home/applications/org.kde.dolphin.desktop" "X-Codex-DolphinWindowAccess=true"
+            refresh_desktop_cache
+            ;;
+        kitty-window-access)
+            remove_marked_wrapper "$bin_home/kitty" "Codex Kitty window access wrapper"
+            restore_marked_desktop_entry "$data_home/applications/kitty.desktop" "X-Codex-KittyWindowAccess=true"
+            restore_marked_desktop_entry "$data_home/applications/kitty-open.desktop" "X-Codex-KittyWindowAccess=true"
+            warn "oh-my-posh prompt marker is not removed automatically; restore the generated .codex-backup file if needed."
+            refresh_desktop_cache
+            ;;
+        *)
+            usage
+            error "Unknown feature: ${1:-}"
+            ;;
+    esac
+}
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+    status)
+        status_command "$@"
+        ;;
+    verify)
+        verify_command "$@"
+        ;;
+    enable)
+        enable_command "$@"
+        ;;
+    disable)
+        disable_command "$@"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

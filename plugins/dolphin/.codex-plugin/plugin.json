@@ -1,0 +1,45 @@
+{
+  "name": "dolphin",
+  "version": "0.2.0",
+  "description": "Linux Dolphin file manager tools for Codex, using filesystem APIs, KDE/Freedesktop commands, and AT-SPI window/selection reads for user-opened Dolphin windows instead of foreground mouse and keyboard control.",
+  "author": {
+    "name": "linux-codex-app"
+  },
+  "homepage": "https://apps.kde.org/dolphin/",
+  "repository": "https://github.com/kkkzbh/linux-codex-app",
+  "license": "MIT",
+  "keywords": [
+    "dolphin",
+    "kde",
+    "linux",
+    "file-manager",
+    "filesystem"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dolphin",
+    "shortDescription": "Control KDE Dolphin and common file-manager actions",
+    "longDescription": "Dolphin gives Codex Linux-native file-manager tools for opening folders, revealing files, listing and searching directories, reading user-opened Dolphin windows and selected paths when window access is enabled, creating folders, renaming, copying, moving, trashing, copying paths to the clipboard, opening properties, and opening a terminal at a folder. It uses filesystem APIs, KDE/Freedesktop commands, and AT-SPI window inspection so routine background work does not depend on foreground mouse or keyboard control.",
+    "developerName": "linux-codex-app",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://apps.kde.org/dolphin/",
+    "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
+    "defaultPrompt": [
+      "Show this project in Dolphin",
+      "Continue from my selected Dolphin files",
+      "Create a folder and move these files",
+      "Search this folder by filename"
+    ],
+    "brandColor": "#1D72F3",
+    "composerIcon": "./assets/org.kde.dolphin.png",
+    "logo": "./assets/org.kde.dolphin.png",
+    "screenshots": []
+  }
+}

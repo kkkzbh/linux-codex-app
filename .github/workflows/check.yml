@@ -1,0 +1,17 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: chmod +x install.sh scripts/*.sh scripts/linux-codex-app scripts/verify-install.sh
+      - run: npm run check:syntax
+      - run: npm run check

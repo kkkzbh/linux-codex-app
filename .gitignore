@@ -1,0 +1,13 @@
+*.dmg
+*.dmg.remote
+node_modules/
+codex-app/
+staged-installs/
+.build/
+dist/
+rpmbuild/
+*.rpm
+*.src.rpm
+*.tar.gz
+*.tar.zst
+SHA256SUMS
