@@ -197,8 +197,13 @@ jobs:
             git -C pages push origin gh-pages
           fi
 
-          if gh api "repos/$GITHUB_REPOSITORY/pages" >/dev/null 2>&1; then
-            gh api -X PUT "repos/$GITHUB_REPOSITORY/pages" -f source[branch]=gh-pages -f source[path]=/
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/pages" -f source[branch]=gh-pages -f source[path]=/
+          pages_config="$(gh api "repos/$GITHUB_REPOSITORY/pages")"
+          pages_source="$(printf '%s' "$pages_config" | node -e '
+            const fs = require("node:fs");
+            const pages = JSON.parse(fs.readFileSync(0, "utf8"));
+            console.log(`${pages.source?.branch ?? ""}:${pages.source?.path ?? ""}`);
+          ')"
+          if [ "$pages_source" != "gh-pages:/" ]; then
+            echo "GitHub Pages must be configured to publish from gh-pages:/, got $pages_source" >&2
+            exit 1
           fi
