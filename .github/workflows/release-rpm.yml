@@ -140,13 +140,13 @@ jobs:
           \`\`\`
           EOF
 
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file release-notes.md
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TITLE" --notes-file release-notes.md
           else
-            gh release create "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file release-notes.md
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TITLE" --notes-file release-notes.md
           fi
 
-          gh release upload "$RELEASE_TAG" dist/*.rpm dist/SHA256SUMS RPM-GPG-KEY-linux-codex-app rpm-signature-checks.txt --clobber
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*.rpm dist/SHA256SUMS RPM-GPG-KEY-linux-codex-app rpm-signature-checks.txt --clobber
       - name: Publish DNF repository metadata
         env:
           GH_TOKEN: ${{ github.token }}
