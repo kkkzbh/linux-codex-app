@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import realProcess from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { encodeFrame, FrameDecoder, parseFrame } from "./linux-browser-runtime/frame.mjs";
-import { COMMON_BROWSER_CLIENT_PATCHES } from "./linux-browser-runtime/browser-client-patches.mjs";
+import {
+  COMMON_BROWSER_CLIENT_PATCHES,
+  patchBrowserClient,
+} from "./linux-browser-runtime/browser-client-patches.mjs";
+import { CHROME_MANIFEST_CHECK_PATCHES } from "./linux-browser-runtime/chrome-plugin-patches.mjs";
 import {
   readBrowserBackendRegistry,
   registerBrowserBackend,
@@ -21,31 +25,6 @@ import { patchSource } from "./linux-browser-runtime/patch-utils.mjs";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const installerRoot = path.dirname(scriptDir);
 const runtimeDir = path.join(scriptDir, "linux-browser-runtime");
-const chromeFixtureRoot = resolveChromeFixtureRoot();
-
-function resolveChromeFixtureRoot() {
-  const cacheRoot = "/home/kkkzbh/.codex/plugins/cache/openai-bundled/chrome";
-  const preferredRoot = path.join(cacheRoot, "0.1.7");
-  if (existsSync(path.join(preferredRoot, "scripts", "browser-client.mjs"))) {
-    return preferredRoot;
-  }
-
-  if (!existsSync(cacheRoot)) {
-    throw new Error(`Chrome plugin fixture cache is missing: ${cacheRoot}`);
-  }
-
-  const candidates = readdirSync(cacheRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(cacheRoot, entry.name))
-    .filter((candidate) => existsSync(path.join(candidate, "scripts", "browser-client.mjs")))
-    .sort();
-
-  const latest = candidates.at(-1);
-  if (!latest) {
-    throw new Error(`Chrome plugin fixture cache does not contain browser-client.mjs: ${cacheRoot}`);
-  }
-  return latest;
-}
 
 function makeTempDir(prefix) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -306,32 +285,74 @@ async function testNativeHostTimesOutMissingChromeResponse() {
   }
 }
 
-function copyAndPatchChromeFixture(tempDir) {
+function chromeBrowserClientFixtureSource() {
+  const frameModuleUrl = pathToFileURL(path.join(runtimeDir, "frame.mjs")).href;
+
+  return `import net from "node:net";
+import * as BS from "node:path";
+import { readdir as RD } from "node:fs/promises";
+import { homedir as HD, platform as OS } from "node:os";
+import { encodeFrame, FrameDecoder, parseFrame } from ${JSON.stringify(frameModuleUrl)};
+
+const Zf="/tmp/codex-native-pipes";
+const Resolve=BS.resolve,Home=HD,Platform=OS;
+var ChromeProfileRoot=Resolve(Home(),Platform()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");
+
+function alpha(){let bridge=globalThis.nodeRepl?.nativePipe;return bridge==null||typeof bridge.createConnection!="function"?null:bridge}
+class NativePipe{static async create(socketPath){let bridge=alpha();if(!bridge)throw new Error("native pipe bridge missing");return bridge.createConnection(socketPath)}}
+function createApi(socket){return{getInfo(){return new Promise((resolve,reject)=>{let decoder=new FrameDecoder(),timer=setTimeout(()=>reject(new Error("getInfo timed out")),10000);socket.on("data",chunk=>{try{for(let frame of decoder.push(chunk)){let message=parseFrame(frame);if(message.id===1){clearTimeout(timer);resolve(message.result)}}}catch(error){clearTimeout(timer);reject(error)}});socket.write(encodeFrame(JSON.stringify({jsonrpc:"2.0",id:1,method:"getInfo"})))})},close(){socket.destroy()}}}
+function enrich(info){return Promise.resolve(info)}
+function log(){}
+function norm(info){return info}
+function fmt(error){return error instanceof Error?error.message:String(error)}
+async function connectBackend(sock,make){let api=null,phase="pipe-connect";try{let transport=await NativePipe.create(sock);api=make(transport),phase="backend-info-request";let info=await api.getInfo(),full=await enrich(info).catch(err=>(log(err),info));return{browser:{id:crypto.randomUUID().substring(8),api:api,info:norm(full)}}}catch(problem){return await api?.close(),log(problem),{failure:\`\${phase}/\${fmt(problem)}\`}}}
+const prefix=Zf,Path=BS,readDir=RD,platform=OS;
+var discover=()=>platform()==="win32"?readWin():readLinux(),readLinux=async()=>(await readDir(prefix)).map(entry=>Path.resolve(prefix,entry)),readWin=async()=>{let root="\\\\\\\\.\\\\pipe\\\\";return(await readDir(root)).map(winEntry=>Path.resolve(root,winEntry)).filter(candidate=>candidate.startsWith(prefix))};
+function normalize(tabId){return tabId}
+function normalizeTimeout(options){return options.timeout_ms}
+function isLoad(target){return Boolean(target)}
+class PointerDriver{constructor(){this.api={moveMouse:async()=>{}};this.cdp={waitForPageLoadEvent:async()=>{},call:async()=>{}};this.ui={moveMouse:async()=>{}}}async dispatchMouseMove(){}async dispatchMouseUp(){}async move(tab,opts,px,py){let pending=this.api.moveMouse({tabId:tab,...opts.waitForArrival===!1?{waitForArrival:!1}:{},x:px,y:py});if(opts.waitForArrival===!1){pending.catch(()=>{});return}await pending}async clickPoint(t){let n=normalize(t.tabId),o=normalizeTimeout({timeout_ms:t.timeoutMs}),r=t.button??"left",a=t.loadTarget==null||!isLoad(t.loadTarget)?[n]:[t.loadTarget,n],s=Promise.all(a.map(async l=>this.cdp.waitForPageLoadEvent(l,{timeoutMs:o}))),c=s.catch(()=>{});try{await this.dispatchMouseMove(n,t.point,t.modifiers);for(let i=1;i<=t.clickCount;i+=1)await this.dispatchMouseDown({button:r,clickCount:i,modifiers:t.modifiers,point:t.point,tabId:n}),await this.dispatchMouseUp({button:r,clickCount:i,modifiers:t.modifiers,point:t.point,tabId:n})}catch(e){throw await c,e}await s}async dispatchMouseDown(){}}
+export async function setupBrowserRuntime({globals=globalThis}={}){let sockets=await discover(),results=[];for(let socketPath of sockets)results.push(await connectBackend(socketPath,createApi));globals.__codexBrowserRuntimeResults=results;return{results}}
+export const setupAtlasRuntime=setupBrowserRuntime;
+`;
+}
+
+function chromeManifestCheckerFixtureSource() {
+  return [
+    'import os from "node:os";',
+    'import path from "node:path";',
+    "",
+    'const WINDOWS_NATIVE_HOST_REGISTRY_KEY_PREFIX = "Software\\\\Google\\\\Chrome\\\\NativeMessagingHosts";',
+    'const expectedHostName = "com.openai.codex";',
+    "",
+    "function readWindowsRegistryDefaultValue() {",
+    "  return null;",
+    "}",
+    "",
+    "function getDefaultWindowsManifestPath() {",
+    '  return "C:\\\\Users\\\\codex\\\\manifest.json";',
+    "}",
+    "",
+    "export function findManifest() {",
+    CHROME_MANIFEST_CHECK_PATCHES[0].search,
+    "}",
+    "",
+  ].join("\n");
+}
+
+function createAndPatchChromeFixture(tempDir) {
   const chromeRoot = path.join(tempDir, "chrome");
-  const result = spawnSync(process.execPath, [
-    "-e",
-    `
-      const fs = require("node:fs");
-      fs.cpSync(${JSON.stringify(chromeFixtureRoot)}, ${JSON.stringify(chromeRoot)}, { recursive: true });
-    `,
-  ]);
-  if (result.status !== 0) {
-    throw new Error("Failed to copy Chrome plugin fixture");
-  }
+  const scriptsDir = path.join(chromeRoot, "scripts");
+  mkdirSync(scriptsDir, { recursive: true });
+  writeFileSync(path.join(scriptsDir, "browser-client.mjs"), chromeBrowserClientFixtureSource());
+  writeFileSync(path.join(scriptsDir, "check-native-host-manifest.js"), chromeManifestCheckerFixtureSource());
 
   const clientPath = path.join(chromeRoot, "scripts", "browser-client.mjs");
   if (readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY")) {
     return chromeRoot;
   }
 
-  const patchResult = spawnSync(process.execPath, [path.join(scriptDir, "patch-chrome-plugin.mjs"), chromeRoot], {
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  if (patchResult.status !== 0) {
-    throw new Error([patchResult.stdout, patchResult.stderr].filter(Boolean).join("\n"));
-  }
-
+  patchBrowserClient(clientPath, { includeChromePatches: true });
   return chromeRoot;
 }
 
@@ -361,10 +382,22 @@ function testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols() {
   }
 }
 
+function testChromeManifestPatchLocator() {
+  const patched = patchSource(
+    chromeManifestCheckerFixtureSource(),
+    CHROME_MANIFEST_CHECK_PATCHES,
+    "synthetic Chrome native host manifest checker",
+  );
+
+  assert.equal(patched.includes('process.platform === "linux"'), true);
+  assert.equal(patched.includes('"NativeMessagingHosts"'), true);
+  assert.equal(patched.includes("macOS, Windows, and Linux"), true);
+}
+
 async function testPatchedBrowserClientStaticMarkers() {
   const tempDir = makeTempDir("codex-browser-client-static-");
   try {
-    const chromeRoot = copyAndPatchChromeFixture(tempDir);
+    const chromeRoot = createAndPatchChromeFixture(tempDir);
     const clientSource = readFileSync(path.join(chromeRoot, "scripts", "browser-client.mjs"), "utf8");
     assert.equal(clientSource.includes("OS(Zf)"), false);
     assert.equal(clientSource.includes("map(e=>BS.resolve(Zf,e))"), false);
@@ -382,7 +415,7 @@ async function testPatchedBrowserClientStaticMarkers() {
 async function testPatchedBrowserClientRegistryDiscovery() {
   const originalExit = process.exit;
   const tempDir = makeTempDir("codex-browser-client-runtime-");
-  const chromeRoot = copyAndPatchChromeFixture(tempDir);
+  const chromeRoot = createAndPatchChromeFixture(tempDir);
   const registryPath = path.join(tempDir, "registry.json");
   const extensionSocket = path.join(tempDir, "extension.sock");
   const hangSocket = path.join(tempDir, "iab.sock");
@@ -449,6 +482,7 @@ await testNativeHostRegistryAndRequestIds();
 await testNativeHostHandlesChromePing();
 await testNativeHostTimesOutMissingChromeResponse();
 testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols();
+testChromeManifestPatchLocator();
 await testPatchedBrowserClientStaticMarkers();
 await testPatchedBrowserClientRegistryDiscovery();
 
