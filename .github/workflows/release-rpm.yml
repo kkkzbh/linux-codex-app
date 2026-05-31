@@ -51,7 +51,6 @@ jobs:
       - name: Build direct-runtime RPM
         env:
           LINUX_CODEX_APP_REPO_BASEURL: ${{ steps.meta.outputs.pages_base_url }}/rpm/fedora/$releasever/$basearch
-          LINUX_CODEX_APP_REPO_GPGKEY: ${{ steps.meta.outputs.gpg_key_url }}
           LINUX_CODEX_APP_REPO_ENABLED: "1"
         run: ./scripts/build-runtime-rpm.sh "${{ inputs.manifest }}"
       - name: Import RPM signing key

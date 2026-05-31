@@ -227,9 +227,13 @@ X-GNOME-WMClass=Codex
 EOF
 
 : "${LINUX_CODEX_APP_REPO_BASEURL:?Set LINUX_CODEX_APP_REPO_BASEURL to the published DNF repo baseurl}"
-: "${LINUX_CODEX_APP_REPO_GPGKEY:?Set LINUX_CODEX_APP_REPO_GPGKEY to the published RPM signing key URL}"
+repo_gpgkey="${LINUX_CODEX_APP_REPO_GPGKEY:-file:///etc/pki/rpm-gpg/RPM-GPG-KEY-linux-codex-app}"
+repo_public_key_file="${LINUX_CODEX_APP_REPO_PUBLIC_KEY_FILE:-$REPO_ROOT/packaging/rpm/RPM-GPG-KEY-linux-codex-app}"
+[ -f "$repo_public_key_file" ] || error "Missing repo public key file: $repo_public_key_file"
 repo_enabled="${LINUX_CODEX_APP_REPO_ENABLED:-1}"
 mkdir -p "$payload_root/etc/yum.repos.d"
+mkdir -p "$payload_root/etc/pki/rpm-gpg"
+install -m 0644 "$repo_public_key_file" "$payload_root/etc/pki/rpm-gpg/RPM-GPG-KEY-linux-codex-app"
 cat > "$payload_root/etc/yum.repos.d/linux-codex-app.repo" <<EOF
 [linux-codex-app]
 name=Linux Codex App
@@ -237,7 +241,7 @@ baseurl=$LINUX_CODEX_APP_REPO_BASEURL
 enabled=$repo_enabled
 gpgcheck=1
 repo_gpgcheck=1
-gpgkey=$LINUX_CODEX_APP_REPO_GPGKEY
+gpgkey=$repo_gpgkey
 EOF
 
 payload_archive="$rpm_top/SOURCES/linux-codex-app-${rpm_version}-payload.tar.gz"

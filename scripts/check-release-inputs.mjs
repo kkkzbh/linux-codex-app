@@ -92,4 +92,9 @@ for (const script of [
   requireExecutable(script);
 }
 
+const repoPublicKey = readFileSync(path.join(repoRoot, "packaging/rpm/RPM-GPG-KEY-linux-codex-app"), "utf8").trim();
+if (!repoPublicKey.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----") || !repoPublicKey.endsWith("-----END PGP PUBLIC KEY BLOCK-----")) {
+  fail("Expected armored RPM public key at packaging/rpm/RPM-GPG-KEY-linux-codex-app");
+}
+
 console.log(`release-inputs: ok (${manifests.length} manifest${manifests.length === 1 ? "" : "s"})`);

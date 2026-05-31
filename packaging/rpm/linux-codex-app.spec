@@ -116,6 +116,7 @@ fi
 
 %files repo
 %config(noreplace) /etc/yum.repos.d/linux-codex-app.repo
+/etc/pki/rpm-gpg/RPM-GPG-KEY-linux-codex-app
 
 %changelog
 * Thu May 28 2026 linux-codex-app maintainers <noreply@example.com> - %{app_version}-%{app_release}

@@ -16,7 +16,6 @@
 
    ```bash
    LINUX_CODEX_APP_REPO_BASEURL='https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch' \
-   LINUX_CODEX_APP_REPO_GPGKEY='https://kkkzbh.github.io/linux-codex-app/RPM-GPG-KEY-linux-codex-app' \
    ./scripts/build-runtime-rpm.sh upstream/codex-app-YYYYMMDD.json
    ```
 
