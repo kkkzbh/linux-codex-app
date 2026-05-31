@@ -17,16 +17,16 @@ export const avatarOverlayTransparencyFeature = {
       replaceOrThrow(
         replaceOrThrow(
           bundleSources.main,
-          "case`avatarOverlay`:return{...WY({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
-          "case`avatarOverlay`:return{...WY({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:gY,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
+          "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
+          "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:k1,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
           "current upstream avatar overlay BrowserWindow options",
         ),
-        "title:n.app.getName(),width:mG.width,height:mG.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:MG",
-        "title:`Codex Pet Overlay`,width:mG.width,height:mG.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:MG",
+        "title:i.app.getName(),width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
+        "title:`Codex Pet Overlay`,width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
         "current upstream avatar overlay title",
       ),
-      "zG={width:276,height:131}",
-      "zG={width:320,height:131}",
+      "JX={width:276,height:131}",
+      "JX={width:320,height:131}",
       "current upstream avatar overlay tray default size",
     );
 
@@ -43,13 +43,13 @@ export const avatarOverlayTransparencyFeature = {
           "nt=64",
           "current upstream avatar overlay collapsed body height",
         ),
-        "he?`whitespace-pre-wrap`:x==null?`line-clamp-2`:void 0",
-        "he?`whitespace-pre-wrap`:x==null?`line-clamp-4`:void 0",
+        "I?`whitespace-pre-wrap`:b==null?`line-clamp-2`:void 0",
+        "I?`whitespace-pre-wrap`:b==null?`line-clamp-4`:void 0",
         "current upstream avatar overlay collapsed body line clamp",
       ),
       "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:80,top:56,width:276,height:131},viewport:{width:356,height:320}}",
       "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:36,top:56,width:320,height:131},viewport:{width:356,height:320}}",
-      "current upstream avatar overlay tray layout",
+      "current upstream avatar overlay fallback layout",
     );
 
     return {

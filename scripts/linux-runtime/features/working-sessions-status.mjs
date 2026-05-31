@@ -3,7 +3,7 @@ import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../re
 
 const IDENTIFIER = String.raw`[$A-Z_a-z][$\w]*`;
 const ipcInitializerEntryRegex = new RegExp(
-  String.raw`function (?<fn>${IDENTIFIER})\(\{buildFlavor:(?<buildFlavor>${IDENTIFIER}),getContextForWebContents:(?<getContext>${IDENTIFIER}),isTrustedIpcEvent:(?<isTrusted>${IDENTIFIER})\}\)\{(?<electron>${IDENTIFIER})\.ipcMain\.on\(`,
+  String.raw`function (?<fn>${IDENTIFIER})\(\{buildFlavor:(?<buildFlavor>${IDENTIFIER}),getContextForWebContents:(?<getContext>${IDENTIFIER}),isTrustedIpcEvent:(?<isTrusted>${IDENTIFIER}),usesOwlAppShell:(?<usesOwl>${IDENTIFIER})\}\)\{(?<electron>${IDENTIFIER})\.ipcMain\.on\(`,
 );
 const trayThreadsNoopCaseRegex =
   /case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:break;/;
@@ -18,8 +18,8 @@ function replaceIpcInitializerEntry(...args) {
     throw new Error("working sessions status writer patch expected named regex groups");
   }
 
-  const { fn, buildFlavor, getContext, isTrusted, electron } = groups;
-  return `${workingSessionsStatusInjection(electron)}function ${fn}({buildFlavor:${buildFlavor},getContextForWebContents:${getContext},isTrustedIpcEvent:${isTrusted}}){${electron}.ipcMain.on(`;
+  const { fn, buildFlavor, getContext, isTrusted, usesOwl, electron } = groups;
+  return `${workingSessionsStatusInjection(electron)}function ${fn}({buildFlavor:${buildFlavor},getContextForWebContents:${getContext},isTrustedIpcEvent:${isTrusted},usesOwlAppShell:${usesOwl}}){${electron}.ipcMain.on(`;
 }
 
 export const workingSessionsStatusFeature = {
@@ -50,7 +50,7 @@ export const workingSessionsStatusFeature = {
     mainSource = replaceOrThrow(
       mainSource,
       trayThreadsNoopCaseRegex,
-      "case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:codexLinuxWriteWorkingSessionsStatus(i);break;",
+      "case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:codexLinuxWriteWorkingSessionsStatus(a);break;",
       "main bundle Linux working sessions tray update hook",
       {
         appliedMarkers: [/case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:codexLinuxWriteWorkingSessionsStatus\([$A-Z_a-z][$\w]*\);break;/],

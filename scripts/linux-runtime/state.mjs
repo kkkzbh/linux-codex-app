@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 export const LINUX_PATCH_STATE_FILENAME = ".linux-patches-state.json";
-export const LINUX_PATCH_VERSION = 73;
+export const LINUX_PATCH_VERSION = 74;
 
 export function getAppAsarSignature(filePath) {
   const stats = statSync(filePath);

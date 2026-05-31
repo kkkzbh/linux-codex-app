@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================================
-# linux-codex-app maintainer installer
+# Codex Desktop for Linux — Installer
 # Converts the official macOS Codex Desktop app to run on Linux
 # ============================================================================
 
@@ -10,15 +10,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_INSTALL_ROOT="$REPO_ROOT/staged-installs"
 INSTALL_DIR=""
-ELECTRON_VERSION="40.0.0"
+ELECTRON_VERSION="42.1.0"
 WORK_DIR="$(mktemp -d)"
 ARCH="$(uname -m)"
 DMG_URL="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
 ACTIVATE_SCRIPT="$SCRIPT_DIR/scripts/activate-install.sh"
 ENSURE_CODEX_CLI_SCRIPT="$SCRIPT_DIR/scripts/ensure-codex-cli.sh"
+PATCH_NATIVE_MODULE_SOURCES_SCRIPT="$SCRIPT_DIR/scripts/patch-native-module-sources.mjs"
 SEVENZIP_BIN="${CODEX_SEVENZIP:-7z}"
 LINUX_BUNDLED_PLUGIN_NAMES=("browser" "chrome" "latex")
-LINUX_LOCAL_PLUGIN_NAMES=()
+LINUX_LOCAL_PLUGIN_NAMES=("dolphin" "kitty")
 LINUX_LOCAL_PLUGIN_SOURCE_ROOT="$SCRIPT_DIR/plugins"
 LINUX_NODE_REPL_SOURCE="$SCRIPT_DIR/scripts/linux-node-repl.mjs"
 LINUX_BROWSER_RUNTIME_DIR="$SCRIPT_DIR/scripts/linux-browser-runtime"
@@ -35,12 +36,13 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 configure_local_plugins() {
-    local requested="${CODEX_LOCAL_PLUGIN_NAMES:-}"
-    requested="${requested//,/ }"
-
-    if [ -n "$requested" ]; then
-        # shellcheck disable=SC2206
-        LINUX_LOCAL_PLUGIN_NAMES=($requested)
+    if [ "${CODEX_LOCAL_PLUGIN_NAMES+x}" = "x" ]; then
+        local requested="${CODEX_LOCAL_PLUGIN_NAMES//,/ }"
+        LINUX_LOCAL_PLUGIN_NAMES=()
+        if [ -n "$requested" ]; then
+            # shellcheck disable=SC2206
+            LINUX_LOCAL_PLUGIN_NAMES=($requested)
+        fi
     fi
 }
 
@@ -141,11 +143,13 @@ get_dmg() {
         info "Explicit DMG refresh requested; checking remote metadata"
     fi
 
-    curl -fsSLI --connect-timeout 30 --max-time 60 -o "$remote_headers" "$DMG_URL" \
-        || error "Could not check remote DMG metadata"
-    remote_etag="$(awk -F': ' 'tolower($1)=="etag" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
-    remote_last_modified="$(awk -F': ' 'tolower($1)=="last-modified" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
-    remote_length="$(awk -F': ' 'tolower($1)=="content-length" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
+    if curl -fsSLI --connect-timeout 30 --max-time 60 -o "$remote_headers" "$DMG_URL"; then
+        remote_etag="$(awk -F': ' 'tolower($1)=="etag" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
+        remote_last_modified="$(awk -F': ' 'tolower($1)=="last-modified" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
+        remote_length="$(awk -F': ' 'tolower($1)=="content-length" {gsub(/\r/,"",$2); print $2}' "$remote_headers" | tail -n1)"
+    else
+        warn "Could not check remote DMG metadata; falling back to local cache if present"
+    fi
 
     if [ -f "$metadata_path" ]; then
         # shellcheck disable=SC1090
@@ -242,8 +246,15 @@ build_native_modules() {
     npm install "electron@$ELECTRON_VERSION" --save-dev --ignore-scripts 2>&1 >&2
     npm install "better-sqlite3@$bs3_ver" "node-pty@$npty_ver" --ignore-scripts 2>&1 >&2
 
+    info "Patching native module sources for Electron v$ELECTRON_VERSION..."
+    node "$PATCH_NATIVE_MODULE_SOURCES_SCRIPT" "$build_dir" 2>&1 >&2
+
+    local electron_abi
+    electron_abi="$(tr -d '[:space:]' < "$build_dir/node_modules/electron/abi_version" 2>/dev/null || echo "")"
+    [ -n "$electron_abi" ] || error "Could not detect Electron ABI from node_modules/electron/abi_version"
+
     info "Compiling for Electron v$ELECTRON_VERSION (this takes ~1 min)..."
-    npx --yes @electron/rebuild -v "$ELECTRON_VERSION" --force 2>&1 >&2
+    npx --yes @electron/rebuild -v "$ELECTRON_VERSION" --force --force-abi "$electron_abi" --build-from-source 2>&1 >&2
 
     info "Native modules built successfully"
 
@@ -267,18 +278,12 @@ patch_asar() {
 
     # Copy unpacked native modules if they exist
     if [ -d "$resources_dir/app.asar.unpacked" ]; then
-        local unpacked_entries=()
-        shopt -s nullglob dotglob
-        unpacked_entries=("$resources_dir/app.asar.unpacked/"*)
-        shopt -u nullglob dotglob
-        if [ ${#unpacked_entries[@]} -gt 0 ]; then
-            cp -r "${unpacked_entries[@]}" app-extracted/
-        fi
+        cp -r "$resources_dir/app.asar.unpacked/"* app-extracted/ 2>/dev/null || true
     fi
 
     # Remove macOS-only modules
-    rm -rf "$WORK_DIR/app-extracted/node_modules/sparkle-darwin"
-    find "$WORK_DIR/app-extracted" -name "sparkle.node" -delete
+    rm -rf "$WORK_DIR/app-extracted/node_modules/sparkle-darwin" 2>/dev/null || true
+    find "$WORK_DIR/app-extracted" -name "sparkle.node" -delete 2>/dev/null || true
 
     # Build native modules in clean environment and copy back
     build_native_modules "$WORK_DIR/app-extracted"
@@ -321,7 +326,7 @@ copy_bundled_plugins() {
         fi
     done
 
-    find "$dest_root" -name '*:com.apple.*' -delete
+    find "$dest_root" -name '*:com.apple.*' -delete 2>/dev/null || true
 
     if [ -f "$dest_root/plugins/browser/scripts/browser-client.mjs" ]; then
         node "$SCRIPT_DIR/scripts/patch-browser-use-plugin.mjs" \
@@ -484,7 +489,7 @@ SCRIPT
 # ---- Main ----
 main() {
     echo "============================================" >&2
-    echo "  linux-codex-app maintainer installer"      >&2
+    echo "  Codex Desktop for Linux — Installer"       >&2
     echo "============================================" >&2
     echo ""                                             >&2
 
@@ -516,7 +521,6 @@ main() {
     done
 
     configure_local_plugins
-
     check_deps
     if [ "${CODEX_SKIP_CODEX_CLI:-0}" = "1" ]; then
         info "Skipping user Codex CLI install/update because CODEX_SKIP_CODEX_CLI=1"

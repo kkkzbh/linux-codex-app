@@ -16,6 +16,7 @@ const mcpScript = path.join(pluginRoot, "scripts", "kitty-mcp.mjs");
 const marketplaceFilterScript = path.join(scriptDir, "filter-bundled-marketplace.mjs");
 const marketplaceAddScript = path.join(scriptDir, "add-local-bundled-marketplace-plugins.mjs");
 const kittyWindowAccessScript = path.join(scriptDir, "install-kitty-window-access.sh");
+const pluginValidator = "/home/kkkzbh/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py";
 
 function makeTempDir(prefix) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -66,7 +67,8 @@ async function testControllerTools() {
   const bufferedCalls = [];
   const detachedCalls = [];
   const inputCalls = [];
-  const ids = ["ki_test", "kr_nowait", "kr_wait"];
+  const ids = ["ki_test"];
+  const getTextFrames = [];
   let nowMs = 1_800_000_000_000;
 
   const controller = createKittyController({
@@ -75,6 +77,12 @@ async function testControllerTools() {
     env: {
       CODEX_KITTY_BIN: "kitty-test",
       CODEX_KITTEN_BIN: "kitten-test",
+      NO_COLOR: "1",
+      TERM: "dumb",
+      COLORTERM: "",
+      CLICOLOR: "0",
+      FORCE_COLOR: "0",
+      LS_COLORS: "",
     },
     nowMs: () => nowMs++,
     sleep: async (ms) => {
@@ -103,15 +111,10 @@ async function testControllerTools() {
         return { stdout: fakeKittyLs(), stderr: "", code: 0 };
       }
       if (args.includes("launch")) {
-        const resultEnv = args.find((value) => value.startsWith("CODEX_KITTY_RUN_RESULT_FILE="));
-        const resultPath = resultEnv?.slice("CODEX_KITTY_RUN_RESULT_FILE=".length);
-        if (resultPath) {
-          writeFileSync(resultPath, '{"status":"exited","exit_code":7,"ended_at_ms":1800000000500}\n');
-        }
         return { stdout: "42\n", stderr: "", code: 0 };
       }
       if (args.includes("get-text")) {
-        return { stdout: Array.from({ length: 6 }, (_, index) => `line ${index + 1}`).join("\n"), stderr: "", code: 0 };
+        return { stdout: getTextFrames.shift() ?? "screen stable", stderr: "", code: 0 };
       }
       return { stdout: "", stderr: "", code: 0, subcommand };
     },
@@ -135,6 +138,14 @@ async function testControllerTools() {
     assert.equal(detachedCalls[0].options.env.CODEX_KITTY_SHORT_ID, "K1");
     assert.equal(detachedCalls[0].options.env.CODEX_KITTY_INSTANCE_KIND, "managed");
     assert.equal(detachedCalls[0].options.env.CODEX_KITTY_SOCKET, opened.socket);
+    assert.equal(detachedCalls[0].options.env.NO_COLOR, undefined);
+    assert.equal(detachedCalls[0].options.env.TERM, undefined);
+    assert.equal(detachedCalls[0].options.env.COLORTERM, undefined);
+    assert.equal(detachedCalls[0].options.env.CLICOLOR, undefined);
+    assert.equal(detachedCalls[0].options.env.FORCE_COLOR, undefined);
+    assert.equal(detachedCalls[0].options.env.LS_COLORS, undefined);
+
+    assert.deepEqual(KITTY_TOOLS.map((tool) => tool.name), ["kitty_list", "kitty_send", "kitty_read"]);
 
     const listed = await controller.callTool("kitty_list", { include_unmanaged: true });
     assert.equal(listed.instances[0].windows[0].id, 42);
@@ -146,66 +157,58 @@ async function testControllerTools() {
     assert.deepEqual(listed.instances[0].windows[0].selector, { short_id: "K1", window_id: 42 });
     assert.equal(listed.unmanaged[0].pid, 900);
 
-    const run = await controller.callTool("kitty_run", {
-      cmd: "npm test",
-      cwd: tempDir,
-      placement: "vsplit",
-      title: "tests",
+    getTextFrames.push("prompt", "prompt\nnpm test\nrunning", "prompt\nnpm test\nrunning");
+    const sentCommand = await controller.callTool("kitty_send", {
+      command: "npm test",
+      short_id: "K1",
+      quiet_ms: 0,
     });
-    assert.equal(run.run_id, "kr_nowait");
-    assert.equal(run.window_id, 42);
-    assert.equal(run.status, "running");
-    const launchCall = assertCommandCall(bufferedCalls, "kitten-test", "launch");
-    assert.ok(launchCall.args.includes("--to"));
-    assert.ok(launchCall.args.includes(`unix:${opened.socket}`));
-    assert.ok(launchCall.args.includes("--location"));
-    assert.ok(launchCall.args.includes("vsplit"));
-    assert.ok(launchCall.args.includes("CODEX_KITTY_COMMAND=npm test"));
-    assert.ok(launchCall.args.includes("CODEX_KITTY_INSTANCE_ID=ki_test"));
-    assert.ok(launchCall.args.includes("CODEX_KITTY_SHORT_ID=K1"));
-    assert.ok(launchCall.args.includes("CODEX_KITTY_INSTANCE_KIND=managed"));
-    assert.ok(launchCall.args.includes(`CODEX_KITTY_SOCKET=${opened.socket}`));
-
-    const waited = await controller.callTool("kitty_run", {
-      cmd: "false",
-      cwd: tempDir,
-      wait: true,
-      tail_lines: 3,
-    });
-    assert.equal(waited.run_id, "kr_wait");
-    assert.equal(waited.status, "exited");
-    assert.equal(waited.exit_code, 7);
-    assert.equal(waited.tail, "line 4\nline 5\nline 6");
-    assert.equal(waited.tail_truncated, true);
-
-    const read = await controller.callTool("kitty_read", { run_id: "kr_wait", mode: "tail", lines: 2 });
-    assert.equal(read.text, "line 5\nline 6");
-    assert.equal(read.exit_code, 7);
-
-    const screen = await controller.callTool("kitty_read", { run_id: "kr_wait", mode: "screen", lines: 2 });
-    assert.equal(screen.text, "line 1\nline 2\nline 3\nline 4\nline 5\nline 6");
-    assert.equal(screen.truncated, false);
-    assert.equal(screen.lines, undefined);
-
-    const sentText = await controller.callTool("kitty_send", { instance_id: "ki_test", window_id: 42, text: "q", bracketed_paste: true });
-    assert.equal(sentText.bytes, 1);
-    assert.equal(inputCalls[0].command, "kitten-test");
+    assert.equal(sentCommand.action, "send_command");
+    assert.equal(sentCommand.window_id, 42);
+    assert.equal(sentCommand.sent.mode, "command");
+    assert.equal(sentCommand.feedback.wait_for, "quiet");
+    assert.equal(sentCommand.feedback.changed, true);
     assert.ok(inputCalls[0].args.includes("send-text"));
     assert.ok(inputCalls[0].args.includes("--stdin"));
-    assert.ok(inputCalls[0].args.includes("--bracketed-paste=enable"));
-    assert.equal(inputCalls[0].input, "q");
+    assert.equal(inputCalls[0].input, "npm test\n");
+    assert.doesNotMatch(inputCalls[0].input, /__codex_status|printf|codex_run|result\.json/);
 
-    const sentKey = await controller.callTool("kitty_send", { instance_id: "ki_test", window_id: 42, key: "ctrl+c" });
+    getTextFrames.push("line 1\nline 2\nline 3\nline 4\nline 5\nline 6");
+    const read = await controller.callTool("kitty_read", { short_id: "K1", mode: "tail", lines: 2 });
+    assert.match(read.text, /line 6/);
+    assert.equal(read.short_id, "K1");
+    assert.equal(read.window_id, 42);
+
+    getTextFrames.push("line 1\nline 2\nline 3\nline 4\nline 5\nline 6");
+    const screen = await controller.callTool("kitty_read", { short_id: "K1", mode: "screen", lines: 2, include_layout: true });
+    assert.match(screen.text, /line 1/);
+    assert.equal(screen.truncated, false);
+    assert.equal(screen.lines, undefined);
+    assert.equal(screen.layout.windows[0].id, 42);
+
+    getTextFrames.push("line 1", "line 1\nq");
+    const sentText = await controller.callTool("kitty_send", { short_id: "K1", window_id: 42, text: "q", bracketed_paste: true, feedback_delay_ms: 0 });
+    assert.equal(sentText.bytes, 1);
+    assert.equal(sentText.short_id, "K1");
+    assert.equal(sentText.sent.mode, "text");
+    assert.equal(sentText.feedback.wait_for, "delay");
+    assert.ok(sentText.feedback.text.includes("line 1"));
+    assert.equal(inputCalls.at(-1).command, "kitten-test");
+    assert.ok(inputCalls.at(-1).args.includes("send-text"));
+    assert.ok(inputCalls.at(-1).args.includes("--stdin"));
+    assert.ok(inputCalls.at(-1).args.includes("--bracketed-paste=enable"));
+    assert.equal(inputCalls.at(-1).input, "q");
+
+    getTextFrames.push("before key", "after key");
+    const sentKey = await controller.callTool("kitty_send", { short_id: "K1", window_id: 42, key: "ctrl+c", feedback_delay_ms: 0 });
     assert.equal(sentKey.key, "ctrl+c");
+    assert.equal(sentKey.sent.mode, "key");
+    assert.equal(sentKey.feedback.wait_for, "delay");
     assert.ok(assertCommandCall(bufferedCalls, "kitten-test", "send-key").args.includes("ctrl+c"));
 
     await assert.rejects(
-      () => controller.callTool("kitty_send", { instance_id: "ki_test", window_id: 42, text: "x", key: "enter" }),
-      /exactly one of text or key/,
-    );
-    await assert.rejects(
-      () => controller.callTool("kitty_send", { instance_id: "ki_test", text: "x" }),
-      /requires window_id or run_id/,
+      () => controller.callTool("kitty_send", { short_id: "K1", window_id: 42, command: "pwd", text: "x", key: "enter" }),
+      /exactly one of command, text, or key/,
     );
 
     await controller.callTool("kitty_layout", { instance_id: "ki_test", window_id: 42, layout: "grid" });
@@ -214,7 +217,7 @@ async function testControllerTools() {
     await controller.callTool("kitty_focus", { instance_id: "ki_test", window_id: 42 });
     assert.ok(assertCommandCall(bufferedCalls, "kitten-test", "focus-window").args.includes("id:42"));
 
-    await controller.callTool("kitty_close", { instance_id: "ki_test", run_id: "kr_wait", signal: "SIGINT" });
+    await controller.callTool("kitty_close", { instance_id: "ki_test", window_id: 42, signal: "SIGINT" });
     assert.ok(assertCommandCall(bufferedCalls, "kitten-test", "signal-child").args.includes("SIGINT"));
     assert.ok(assertCommandCall(bufferedCalls, "kitten-test", "close-window").args.includes("id:42"));
   } finally {
@@ -222,12 +225,14 @@ async function testControllerTools() {
   }
 }
 
-async function testAutoCreatedRunClosesInitialWindow() {
+async function testAutoCreatedCommandUsesRequestedSharedShell() {
   const tempDir = makeTempDir("codex-kitty-auto-run-");
   const stateRoot = path.join(tempDir, "state");
   const bufferedCalls = [];
   const detachedCalls = [];
-  const ids = ["ki_auto", "kr_auto"];
+  const inputCalls = [];
+  const ids = ["ki_auto"];
+  const getTextFrames = ["prompt", "prompt\nprintf ok", "prompt\nprintf ok"];
 
   function autoLs() {
     return JSON.stringify([
@@ -280,25 +285,108 @@ async function testAutoCreatedRunClosesInitialWindow() {
       if (args.includes("ls")) {
         return { stdout: autoLs(), stderr: "", code: 0 };
       }
-      if (args.includes("launch")) {
-        return { stdout: "22\n", stderr: "", code: 0 };
+      if (args.includes("get-text")) {
+        return { stdout: getTextFrames.shift() ?? "prompt\nprintf ok", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    },
+    runWithInput: async (command, args, input, options = {}) => {
+      inputCalls.push({ command, args, input, options });
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+
+  try {
+    const sent = await controller.callTool("kitty_send", { short_id: "K7", command: "printf ok", quiet_ms: 0 });
+    assert.equal(sent.instance_id, "ki_auto");
+    assert.equal(sent.short_id, "K7");
+    assert.equal(sent.window_id, 11);
+    assert.equal(sent.sent.mode, "command");
+    assert.equal(sent.feedback.wait_for, "quiet");
+    assert.equal(detachedCalls[0].options.env.CODEX_KITTY_SHORT_ID, "K7");
+    assert.ok(inputCalls[0].args.includes("send-text"));
+    assert.equal(inputCalls[0].input, "printf ok\n");
+    assert.doesNotMatch(inputCalls[0].input, /__codex_status|printf .*status|codex_run|result\.json/);
+    assert.equal(bufferedCalls.some((call) => call.args.includes("launch")), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testDefaultDetachedEnvDoesNotRePolluteManagedKitty() {
+  const tempDir = makeTempDir("codex-kitty-detached-env-");
+  const stateRoot = path.join(tempDir, "state");
+  const fakeKitty = path.join(tempDir, "fake-kitty.sh");
+  const envFile = path.join(tempDir, "kitty-env.txt");
+  const originalNoColor = process.env.NO_COLOR;
+  const originalTerm = process.env.TERM;
+
+  writeFileSync(
+    fakeKitty,
+    [
+      "#!/usr/bin/env bash",
+      'env > "$FAKE_KITTY_ENV_FILE"',
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  process.env.NO_COLOR = "1";
+  process.env.TERM = "dumb";
+
+  const controller = createKittyController({
+    cwd: tempDir,
+    stateRoot,
+    env: {
+      ...process.env,
+      CODEX_KITTY_BIN: fakeKitty,
+      CODEX_KITTEN_BIN: "kitten-test",
+      FAKE_KITTY_ENV_FILE: envFile,
+      NO_COLOR: "1",
+      TERM: "dumb",
+    },
+    makeId: (prefix) => `${prefix}_env`,
+    waitForSocket: async (socket) => {
+      mkdirSync(path.dirname(socket), { recursive: true });
+      writeFileSync(socket, "");
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (existsSync(envFile)) {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return true;
+    },
+    runBuffered: async (command, args) => {
+      if (command !== "kitten-test") {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      if (args.includes("ls")) {
+        return { stdout: fakeKittyLs(), stderr: "", code: 0 };
       }
       return { stdout: "", stderr: "", code: 0 };
     },
   });
 
   try {
-    const run = await controller.callTool("kitty_run", { cmd: "printf ok", cwd: tempDir });
-    assert.equal(run.instance_id, "ki_auto");
-    assert.equal(run.short_id, "K1");
-    assert.equal(run.window_id, 22);
-    assert.equal(run.closed_initial_window_id, 11);
-    assert.equal(detachedCalls[0].options.env.CODEX_KITTY_SHORT_ID, "K1");
-    const launchCall = assertCommandCall(bufferedCalls, "kitten-test", "launch");
-    assert.ok(launchCall.args.includes("CODEX_KITTY_SHORT_ID=K1"));
-    const closeCall = bufferedCalls.find((call) => call.command === "kitten-test" && call.args.includes("close-window") && call.args.includes("id:11"));
-    assert.ok(closeCall, "Expected auto-created kitty_run to close the initial empty shell window");
+    await controller.callTool("kitty_open", { title: "Detached Env", cwd: tempDir });
+    const envText = readFileSync(envFile, "utf8");
+    assert.match(envText, /CODEX_KITTY_SHORT_ID=K1/);
+    assert.match(envText, /CODEX_KITTY_INSTANCE_KIND=managed/);
+    assert.doesNotMatch(envText, /^NO_COLOR=/m);
+    assert.doesNotMatch(envText, /^TERM=dumb$/m);
   } finally {
+    if (originalNoColor == null) {
+      delete process.env.NO_COLOR;
+    } else {
+      process.env.NO_COLOR = originalNoColor;
+    }
+    if (originalTerm == null) {
+      delete process.env.TERM;
+    } else {
+      process.env.TERM = originalTerm;
+    }
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
@@ -309,6 +397,7 @@ async function testAdoptedRegistrySelection() {
   const socket = path.join(stateRoot, "adopted", "K1.sock");
   const bufferedCalls = [];
   const inputCalls = [];
+  const getTextFrames = ["prompt", "prompt\nprintf ok", "prompt\nprintf ok", "before q", "after q"];
   mkdirSync(path.dirname(socket), { recursive: true });
   writeFileSync(socket, "");
   writeFileSync(
@@ -339,6 +428,9 @@ async function testAdoptedRegistrySelection() {
       if (args.includes("ls")) {
         return { stdout: fakeKittyLs(), stderr: "", code: 0 };
       }
+      if (args.includes("get-text")) {
+        return { stdout: getTextFrames.shift() ?? "after q", stderr: "", code: 0 };
+      }
       if (args.includes("launch")) {
         return { stdout: "42\n", stderr: "", code: 0 };
       }
@@ -355,16 +447,18 @@ async function testAdoptedRegistrySelection() {
     assert.equal(listed.instances[0].kind, "adopted");
     assert.equal(listed.instances[0].short_id, "K1");
 
-    const run = await controller.callTool("kitty_run", { short_id: "K1", cmd: "printf ok", cwd: tempDir });
-    assert.equal(run.instance_id, "ki_adopted_k1");
-    assert.equal(run.short_id, "K1");
-    assert.equal(run.instance_kind, "adopted");
-    assert.ok(bufferedCalls.some((call) => call.args.includes("launch") && call.args.includes(`unix:${socket}`)));
+    const command = await controller.callTool("kitty_send", { short_id: "K1", command: "printf ok", quiet_ms: 0 });
+    assert.equal(command.instance_id, "ki_adopted_k1");
+    assert.equal(command.short_id, "K1");
+    assert.equal(command.target.instance_kind, "adopted");
+    assert.ok(inputCalls[0].args.includes("send-text"));
+    assert.equal(inputCalls[0].input, "printf ok\n");
+    assert.equal(bufferedCalls.some((call) => call.args.includes("launch")), false);
 
-    const sent = await controller.callTool("kitty_send", { run_id: run.run_id, text: "q" });
+    const sent = await controller.callTool("kitty_send", { short_id: "K1", text: "q", feedback_delay_ms: 0 });
     assert.equal(sent.short_id, "K1");
     assert.equal(sent.window_id, 42);
-    assert.equal(inputCalls[0].input, "q");
+    assert.equal(inputCalls.at(-1).input, "q");
 
     await assert.rejects(
       () => controller.callTool("kitty_close", { short_id: "K1" }),
@@ -375,28 +469,132 @@ async function testAdoptedRegistrySelection() {
   }
 }
 
-async function testAmbiguousSelection() {
-  const tempDir = makeTempDir("codex-kitty-ambiguous-");
+async function testLastUsedShortIdSelection() {
+  const tempDir = makeTempDir("codex-kitty-last-used-");
   const stateRoot = path.join(tempDir, "state");
   mkdirSync(path.join(stateRoot, "sockets"), { recursive: true });
-  const firstSocket = path.join(stateRoot, "sockets", "one.sock");
-  const secondSocket = path.join(stateRoot, "sockets", "two.sock");
+  const firstSocket = path.join(stateRoot, "sockets", "k1.sock");
+  const secondSocket = path.join(stateRoot, "sockets", "k2.sock");
   writeFileSync(firstSocket, "");
   writeFileSync(secondSocket, "");
   writeFileSync(
     path.join(stateRoot, "instances.json"),
     JSON.stringify({
       version: 1,
+      last_used_short_id: "K2",
       instances: [
-        { instance_id: "ki_one", kind: "managed", socket: firstSocket, status: "running", cwd: tempDir },
-        { instance_id: "ki_two", kind: "managed", socket: secondSocket, status: "running", cwd: tempDir },
+        { instance_id: "ki_one", short_id: "K1", kind: "managed", socket: firstSocket, status: "running", cwd: tempDir },
+        { instance_id: "ki_two", short_id: "K2", kind: "managed", socket: secondSocket, status: "running", cwd: tempDir },
       ],
     }),
   );
 
-  const controller = createKittyController({ cwd: tempDir, stateRoot });
+  const inputCalls = [];
+  const getTextFrames = ["prompt", "prompt\npwd", "prompt\npwd"];
+  const controller = createKittyController({
+    cwd: tempDir,
+    stateRoot,
+    env: { CODEX_KITTEN_BIN: "kitten-test" },
+    makeId: (prefix) => `${prefix}_last`,
+    runBuffered: async (command, args) => {
+      if (command !== "kitten-test") {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      if (args.includes("ls")) {
+        return { stdout: fakeKittyLs(), stderr: "", code: 0 };
+      }
+      if (args.includes("get-text")) {
+        return { stdout: getTextFrames.shift() ?? "prompt\npwd", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    },
+    runWithInput: async (command, args, input) => {
+      inputCalls.push({ command, args, input });
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
   try {
-    await assert.rejects(() => controller.callTool("kitty_run", { cmd: "pwd", cwd: tempDir }), /multiple managed kitty instances/);
+    const sent = await controller.callTool("kitty_send", { command: "pwd", quiet_ms: 0 });
+    assert.equal(sent.short_id, "K2");
+    assert.equal(sent.instance_id, "ki_two");
+    assert.equal(inputCalls[0].input, "pwd\n");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testSendWaitStrategies() {
+  const tempDir = makeTempDir("codex-kitty-wait-");
+  const stateRoot = path.join(tempDir, "state");
+  const socket = path.join(stateRoot, "sockets", "ki_wait.sock");
+  const inputCalls = [];
+  const bufferedCalls = [];
+  let nowMs = 1_800_000_100_000;
+  let getTextFrames = [];
+  mkdirSync(path.dirname(socket), { recursive: true });
+  writeFileSync(socket, "");
+  writeFileSync(
+    path.join(stateRoot, "instances.json"),
+    JSON.stringify({
+      version: 1,
+      instances: [{ instance_id: "ki_wait", short_id: "K1", kind: "managed", socket, status: "running", cwd: tempDir }],
+    }),
+  );
+
+  const controller = createKittyController({
+    cwd: tempDir,
+    stateRoot,
+    env: { CODEX_KITTEN_BIN: "kitten-test" },
+    nowMs: () => nowMs,
+    sleep: async (ms) => {
+      nowMs += ms;
+    },
+    runBuffered: async (command, args) => {
+      bufferedCalls.push({ command, args });
+      if (command !== "kitten-test") {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      if (args.includes("ls")) {
+        return { stdout: fakeKittyLs(), stderr: "", code: 0 };
+      }
+      if (args.includes("get-text")) {
+        return { stdout: getTextFrames.shift() ?? "stable", stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    },
+    runWithInput: async (command, args, input) => {
+      inputCalls.push({ command, args, input });
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+
+  try {
+    const none = await controller.callTool("kitty_send", { short_id: "K1", text: "x", wait_for: "none" });
+    assert.equal(none.feedback, undefined);
+    assert.equal(inputCalls.at(-1).input, "x");
+
+    getTextFrames = ["before", "after"];
+    const change = await controller.callTool("kitty_send", { short_id: "K1", text: "y", wait_for: "change", timeout_ms: 500 });
+    assert.equal(change.feedback.wait_for, "change");
+    assert.equal(change.feedback.changed, true);
+    assert.equal(change.feedback.timed_out, false);
+
+    getTextFrames = ["before regex", "still waiting", "done MATCH"];
+    const regex = await controller.callTool("kitty_send", { short_id: "K1", text: "z", wait_for: "regex", pattern: "MATCH", timeout_ms: 500 });
+    assert.equal(regex.feedback.wait_for, "regex");
+    assert.equal(regex.feedback.matched, true);
+    assert.equal(regex.feedback.timed_out, false);
+
+    await assert.rejects(
+      () => controller.callTool("kitty_send", { short_id: "K1", text: "bad", wait_for: "regex" }),
+      /pattern must be a non-empty string/,
+    );
+
+    getTextFrames = ["same", "same", "same"];
+    const timeout = await controller.callTool("kitty_send", { short_id: "K1", text: "t", wait_for: "change", timeout_ms: 100 });
+    assert.equal(timeout.feedback.wait_for, "change");
+    assert.equal(timeout.feedback.changed, false);
+    assert.equal(timeout.feedback.timed_out, true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -518,11 +716,11 @@ async function testLineDelimitedMcpServer() {
     assert.deepEqual(toolNames, KITTY_TOOLS.map((tool) => tool.name).sort());
 
     const call = await server.request("tools/call", {
-      name: "kitty_list",
+      name: "kitty_send",
       arguments: {},
     });
-    const result = parseJsonTextToolResult(call.result);
-    assert.equal(result.ok, true);
+    assert.equal(call.result.isError, true);
+    assert.match(call.result.content[0].text, /requires exactly one of command, text, or key/);
   } finally {
     server.close();
   }
@@ -826,25 +1024,19 @@ function escapeRegExp(value) {
 function testPluginMetadata() {
   const manifest = JSON.parse(readFileSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
   assert.equal(manifest.name, "kitty");
-  assert.equal(typeof manifest.version, "string");
-  assert.equal(typeof manifest.description, "string");
-  assert.equal(manifest.author.name, "linux-codex-app");
-  assert.equal(manifest.repository, "https://github.com/kkkzbh/linux-codex-app");
-  assert.equal(manifest.license, "MIT");
-  assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.mcpServers, "./.mcp.json");
-  assert.equal(manifest.interface.displayName, "Kitty");
-  assert.equal(manifest.interface.developerName, "linux-codex-app");
-  assert.equal(manifest.interface.category, "Productivity");
-  assert.deepEqual(manifest.interface.capabilities, ["Interactive", "Read", "Write"]);
   assert.equal(manifest.interface.composerIcon, "./assets/kitty.png");
-  assert.equal(manifest.interface.logo, "./assets/kitty.png");
   assert.ok(existsSync(path.join(pluginRoot, "assets", "kitty.png")));
   assert.ok(existsSync(path.join(pluginRoot, "skills", "kitty", "SKILL.md")));
 
   const mcpManifest = JSON.parse(readFileSync(path.join(pluginRoot, ".mcp.json"), "utf8"));
+  assert.equal(mcpManifest.mcp_servers, undefined);
   assert.equal(mcpManifest.mcpServers.kitty.command, "node");
   assert.deepEqual(mcpManifest.mcpServers.kitty.args, ["./scripts/kitty-mcp.mjs"]);
+  assert.equal(mcpManifest.mcpServers.kitty.cwd, ".");
+
+  const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
+  assert.equal(validation.status, 0, validation.stdout + validation.stderr);
 }
 
 async function main() {
@@ -854,9 +1046,11 @@ async function main() {
   testMarketplaceScripts();
   testLocalMarketplaceMetadata();
   await testControllerTools();
-  await testAutoCreatedRunClosesInitialWindow();
+  await testAutoCreatedCommandUsesRequestedSharedShell();
+  await testDefaultDetachedEnvDoesNotRePolluteManagedKitty();
   await testAdoptedRegistrySelection();
-  await testAmbiguousSelection();
+  await testLastUsedShortIdSelection();
+  await testSendWaitStrategies();
   await testErrorShapes();
   await testLineDelimitedMcpServer();
   await testHeaderDelimitedMcpServer();

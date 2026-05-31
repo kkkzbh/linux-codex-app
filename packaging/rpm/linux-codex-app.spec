@@ -3,6 +3,7 @@
 %global manifest_id %{?linux_codex_app_manifest_id}%{!?linux_codex_app_manifest_id:unknown}
 %global debug_package %{nil}
 %global __os_install_post %{nil}
+%global _binary_payload w3.zstdio
 %global __requires_exclude_from ^/opt/linux-codex-app/.*$
 %global __provides_exclude_from ^/opt/linux-codex-app/.*$
 

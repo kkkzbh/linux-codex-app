@@ -20,7 +20,7 @@ let bundleSources = {
   main: [
     "function featureGate(settings,{buildFlavor:flavor=build.O.resolve(),env:environment=proc.default.env,platform:osPlatform=proc.default.platform}={}){let merged=osPlatform===`win32`&&environment.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...settings,computerUse:!0,computerUseNodeRepl:!0}:settings,overrides=flavor===build.O.Dev?readOverrides(environment):null;return overrides==null?merged:{...merged,...overrides}}",
     '"chrome-extension-installed-read":async({extensionId:e})=>({installed:oa({extensionId:e})});',
-    "function fa({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,i.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,i.join)(t??(0,i.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
+    "function Co({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,o.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,o.join)(t??(0,o.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
   ].join(""),
 };
 
@@ -33,7 +33,7 @@ assert.equal(chromeExtensionStatusFeature.isApplied(bundleSources), false);
 bundleSources = chromeExtensionStatusFeature.apply(bundleSources);
 chromeExtensionStatusFeature.verify(bundleSources);
 assert.equal(bundleSources.main.includes("`.config`,`google-chrome`"), true);
-assert.equal(bundleSources.main.includes("n===`linux`?(0,i.join)(e,`.config`,`google-chrome`):null"), true);
+assert.equal(bundleSources.main.includes("n===`linux`?(0,o.join)(e,`.config`,`google-chrome`):null"), true);
 
 let preferenceBundle = {
   main: '"set-preferred-app":async({target:selected})=>(persist(this.getSettingsStore(),null,selected),{success:!0})',
@@ -73,11 +73,11 @@ assert.equal(imageCacheBundle.webviewUsePlugins.includes("staleTime:0"), true);
 let conversationImageBundle = {
   webviewFollowUp: [
     "case`imageGeneration`:a.push({type:`generated-image`,id:n.id,src:n.src,status:n.status});break;",
-    "case`imageView`:{let e=Uy(n.path),r=e==null?null:Ey(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}",
-    "case`imageView`:return Uy(e.path)!=null;",
+    "case`imageView`:{let e=Cx(n.path),r=e==null?null:sx(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}",
+    "case`imageView`:return Cx(e.path)!=null;",
   ].join(""),
   webviewUsePlugins:
-    "function C(e){if(e==null)return null;let n=e.trim();if(n.length===0)return null;let r=n.toLowerCase();if(r.startsWith(`data:`)||r.startsWith(`http:`)||r.startsWith(`https:`)||r.startsWith(`file:`)||r.startsWith(`vscode-resource:`)||r.startsWith(`vscode-webview:`)||r.startsWith(`vscode-file:`))return null;let i=t(n);return o(i)?i:null}",
+    "function C(e){if(e==null)return null;let t=e.trim();if(t.length===0)return null;let n=t.toLowerCase();if(n.startsWith(`data:`)||n.startsWith(`http:`)||n.startsWith(`https:`)||n.startsWith(`file:`)||n.startsWith(`vscode-resource:`)||n.startsWith(`vscode-webview:`)||n.startsWith(`vscode-file:`))return null;let r=a(t);return d(r)?r:null}",
 };
 assert.equal(conversationLocalImagesFeature.isApplied(conversationImageBundle), false);
 conversationImageBundle = conversationLocalImagesFeature.apply(conversationImageBundle);
@@ -124,8 +124,8 @@ assert.equal(chromeSetupBundle.webviewPluginDetail.includes("plugin_browser_exte
 
 let pluginMcpReloadBundle = {
   webviewPluginAvailability: [
-    "var X=T();function Oe(){return null}",
-    "let g=await We({authPolicy:f.authPolicy,hostId:t,plugin:l,queryClient:o,windowType:`electron`});if(f.authPolicy===`ON_USE`){return null}",
+    "var X=E();function Me(){return null}",
+    "let _=await qe({authPolicy:h.authPolicy,codexHome:c,hostId:t,plugin:f,queryClient:a,windowType:`electron`});if(h.authPolicy===`ON_USE`){return null}",
   ].join(";"),
   webviewRemoteControlConnectionsVisibility: "",
 };
@@ -147,7 +147,7 @@ assert.equal(
 
 let workingSessionsBundle = {
   main: [
-    "function registerIpc({buildFlavor:flavor,getContextForWebContents:contextForWebContents,isTrustedIpcEvent:isTrusted}){electronMain.ipcMain.on(channel,event=>{})}",
+    "function registerIpc({buildFlavor:flavor,getContextForWebContents:contextForWebContents,isTrustedIpcEvent:isTrusted,usesOwlAppShell:usesOwl}){electronMain.ipcMain.on(channel,event=>{})}",
     "case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:break;",
   ].join(""),
 };
@@ -155,7 +155,7 @@ assert.equal(workingSessionsStatusFeature.isApplied(workingSessionsBundle), fals
 workingSessionsBundle = workingSessionsStatusFeature.apply(workingSessionsBundle);
 workingSessionsStatusFeature.verify(workingSessionsBundle);
 assert.equal(workingSessionsBundle.main.includes("electronMain.app.on(`before-quit`"), true);
-assert.equal(workingSessionsBundle.main.includes("codexLinuxWriteWorkingSessionsStatus(i);break;"), true);
+assert.equal(workingSessionsBundle.main.includes("codexLinuxWriteWorkingSessionsStatus(a);break;"), true);
 
 let remoteBackendBundle = {
   main: "function mergeFeatures(base,{buildFlavor:flavor=build.O.resolve(),env:environment=proc.default.env,platform:platformName=proc.default.platform}={}){let merged=platformName===`linux`&&environment.CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE===`1`?{...base,browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0}:platformName===`win32`&&environment.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...base,computerUse:!0,computerUseNodeRepl:!0}:base,overrides=flavor===build.O.Dev?readOverrides(environment):null;return overrides==null?merged:{...merged,...overrides}}",
@@ -168,7 +168,7 @@ assert.equal(remoteBackendBundle.main.includes("deviceAttestation:!0"), false);
 
 let settingsSidebarBundle = {
   webviewSettingsPage:
-    "H=a(`window-fx-sidebar-surface flex shrink-0 flex-col`,`w-token-sidebar`),U=(0,Q.jsx)(`div`,{className:`draggable h-toolbar w-full`})",
+    "J=a(`window-fx-sidebar-surface flex shrink-0 flex-col`,`w-token-sidebar`),Y=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full`})",
 };
 assert.equal(settingsSidebarSurfaceFeature.isApplied(settingsSidebarBundle), false);
 settingsSidebarBundle = settingsSidebarSurfaceFeature.apply(settingsSidebarBundle);
@@ -177,8 +177,8 @@ assert.equal(settingsSidebarBundle.webviewSettingsPage.includes("app-shell-left-
 assert.equal(settingsSidebarBundle.webviewSettingsPage.includes("relative flex shrink-0"), true);
 
 const patchedOpenTargetsAnchor = openTargetsFeature.getPatchedGhosttyAnchor();
-assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Ii(`gwenview`)"), true);
-assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Ii(`typora`)??Ii(`typora-x11-fcitx`)"), true);
+assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Ka(`gwenview`)"), true);
+assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Ka(`typora`)??Ka(`typora-x11-fcitx`)"), true);
 assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Fi(`"), false);
 
 console.error("[INFO] Linux runtime patch locator tests passed");

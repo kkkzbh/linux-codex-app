@@ -5,6 +5,7 @@ CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 STANDALONE_CURRENT="${CODEX_STANDALONE_CURRENT:-$CODEX_HOME_DIR/packages/standalone/current}"
 STANDALONE_CODEX="$STANDALONE_CURRENT/codex"
 RELEASE="${CODEX_CLI_RELEASE:-latest}"
+OFFICIAL_INSTALL_URL="${CODEX_CLI_INSTALL_URL:-https://chatgpt.com/codex/install.sh}"
 
 usage() {
     cat >&2 <<EOF
@@ -62,9 +63,11 @@ resolve_latest_version() {
         return
     fi
 
-    local release_json resolved
-    release_json="$(download_text "https://api.github.com/repos/openai/codex/releases/latest" 2>/dev/null || true)"
-    resolved="$(printf '%s\n' "$release_json" | sed -n 's/.*"tag_name":[[:space:]]*"rust-v\([^"]*\)".*/\1/p' | head -n 1)"
+    command -v curl >/dev/null 2>&1 || return 1
+
+    local headers resolved
+    headers="$(curl -fsSLI "$OFFICIAL_INSTALL_URL" 2>/dev/null || true)"
+    resolved="$(printf '%s\n' "$headers" | tr -d '\r' | sed -n 's#^[Ll]ocation: .*/releases/download/rust-v\([^/[:space:]]*\)/.*#\1#p' | tail -n 1)"
 
     [ -n "$resolved" ] || return 1
     printf '%s\n' "$resolved"

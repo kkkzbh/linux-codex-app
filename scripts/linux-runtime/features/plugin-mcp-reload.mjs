@@ -1,14 +1,14 @@
 import { FEATURE_MARKERS } from "../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
-const HELPER_ANCHOR = "var X=T();function Oe(){";
+const HELPER_ANCHOR = "var X=E();function Me(){";
 const HELPER_REPLACEMENT =
-  "var X=T();function codexLinuxPluginHasMcp(e){let t=e?.mcpServers??e?.summary?.mcpServers??e?.plugin?.mcpServers;return t==null?!0:Array.isArray(t)?t.length>0:!!t}function codexLinuxRestartAppServerForPluginMcp(e,t,n){codexLinuxPluginHasMcp(e)&&typeof n?.dispatchMessage==`function`&&n.dispatchMessage(`codex-app-server-restart`,{hostId:t})}function Oe(){";
+  "var X=E();function codexLinuxPluginHasMcp(e){let t=e?.mcpServers??e?.summary?.mcpServers??e?.plugin?.mcpServers;return t==null?!0:Array.isArray(t)?t.length>0:!!t}function codexLinuxRestartAppServerForPluginMcp(e,t,n){codexLinuxPluginHasMcp(e)&&typeof n?.dispatchMessage==`function`&&n.dispatchMessage(`codex-app-server-restart`,{hostId:t})}function Me(){";
 
 const INSTALL_AUTH_ANCHOR =
-  "let g=await We({authPolicy:f.authPolicy,hostId:t,plugin:l,queryClient:o,windowType:`electron`});if(f.authPolicy===`ON_USE`";
+  "let _=await qe({authPolicy:h.authPolicy,codexHome:c,hostId:t,plugin:f,queryClient:a,windowType:`electron`});if(h.authPolicy===`ON_USE`";
 const INSTALL_AUTH_REPLACEMENT =
-  "let g=await We({authPolicy:f.authPolicy,hostId:t,plugin:l,queryClient:o,windowType:`electron`});codexLinuxRestartAppServerForPluginMcp(l,t,E);if(f.authPolicy===`ON_USE`";
+  "let _=await qe({authPolicy:h.authPolicy,codexHome:c,hostId:t,plugin:f,queryClient:a,windowType:`electron`});codexLinuxRestartAppServerForPluginMcp(f,t,D);if(h.authPolicy===`ON_USE`";
 
 export const pluginMcpReloadFeature = {
   id: "plugin-mcp-reload",
@@ -43,7 +43,7 @@ export const pluginMcpReloadFeature = {
       INSTALL_AUTH_REPLACEMENT,
       "plugin MCP app-server restart after install",
       {
-        appliedMarker: "codexLinuxRestartAppServerForPluginMcp(l,t,E)",
+        appliedMarker: "codexLinuxRestartAppServerForPluginMcp(f,t,D)",
       },
     );
 

@@ -7,9 +7,9 @@
 当前目标平台：
 
 - Fedora 44 KDE x86_64
-- Codex App `26.519.81530`
-- Electron `40.0.0`
-- Codex CLI `0.133.0`
+- Codex App `26.527.31326`
+- Electron `42.1.0`
+- Codex CLI `0.135.0`
 
 ## Fedora 44 KDE 安装
 
@@ -80,7 +80,7 @@ linux-codex-app disable kitty-window-access
 如果不想导入仓库，也可以从 GitHub Releases 下载对应版本 RPM 后安装：
 
 ```bash
-sudo dnf install ./linux-codex-app-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm
+sudo dnf install ./linux-codex-app-0.1.1-1.codex26_527_31326.fc44.x86_64.rpm
 ```
 
 ## 说明

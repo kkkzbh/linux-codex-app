@@ -56,18 +56,18 @@ export const FEATURE_MARKERS = {
         "function codexLinuxMarkdownMimeType(e)",
         "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,cwd:codexLinuxMarkdownCwd,mediaPresentation:s,rootRef:c,src:l,title:u}=e",
         "S=codexLinuxResolveMarkdownMediaPath(x,codexLinuxMarkdownCwd)",
-        "A=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
-        "E=Ut(S??A??x)",
-        "j=D?(O?ce(S):A):null",
-        "I=j??(M&&ee!=null?qt({contentsBase64:ee,mimeType:P?.mimeType??null,path:S??x}):A??x)",
-        "R=!D&&(O||A!=null)",
-        "te=D&&C&&j==null",
-        "params:{path:M?S??x:``,hostId:o}",
-        "(0,Z.jsx)(en,{...e,animateEnter:t,cwd:r??null,hostId:a,mediaPresentation:o,rootRef:s})",
+        "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
+        "T=Yt(S??ke??x)",
+        "N=O?(A?me(S):ke):null",
+        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):ke??x)",
+        "B=!O&&(A||ke!=null)",
+        "ne=O&&C&&N==null",
+        "params:{path:P?S??x:``,hostId:o}",
+        "(0,Z.jsx)(mn,{...e,animateEnter:t,cwd:n??null,hostId:a,mediaPresentation:o,rootRef:s})",
       ],
       webviewDiffAnnotations: [
         "function codexLinuxMarkdownPreviewDir(e)",
-        "(0,Z.jsx)(_e,{enableMetadataPreview:!0,markdown:v,cwd:S})",
+        "(0,Z.jsx)(de,{enableMetadataPreview:!0,markdown:v,cwd:S})",
       ],
       webviewHtml: [
         "img-src &#39;self&#39; app: blob: data: http: https:;",
@@ -77,14 +77,14 @@ export const FEATURE_MARKERS = {
     forbiddenMarkers: {
       webviewMarkdown: [
         "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,mediaPresentation:s,rootRef:c,src:l,title:u}=e",
-        "x=l??``,S=f(x),C=x.length>0,w=Gt(x),E;t[0]===x?E=t[1]:(E=Ut(x),t[0]=x,t[1]=E)",
-        "k=w==null&&C&&!O&&Jt(x),j=O&&D?ce(S):null",
-        "I=j??(M&&ee!=null?qt({contentsBase64:ee,mimeType:P?.mimeType??null,path:S??x}):x)",
-        "R=O&&!D,te=O&&D&&j==null",
-        "(0,Z.jsx)(en,{...e,animateEnter:t,hostId:a,mediaPresentation:o,rootRef:s})",
+        "x=l??``,S=d(x),C=x.length>0,w=Zt(x),T;t[0]===x?T=t[1]:(T=Yt(x),t[0]=x,t[1]=T)",
+        "M=w==null&&C&&!A&&en(x)&&j.safeUrl==null&&!j.isPending",
+        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):x)",
+        "B=A&&!O,ne=A&&O&&N==null",
+        "(0,Z.jsx)(mn,{...e,animateEnter:t,hostId:a,mediaPresentation:o,rootRef:s})",
       ],
       webviewDiffAnnotations: [
-        "(0,Z.jsx)(_e,{enableMetadataPreview:!0,markdown:v})",
+        "(0,Z.jsx)(de,{enableMetadataPreview:!0,markdown:v})",
       ],
       webviewHtml: [
         "img-src &#39;self&#39; app: blob: data: https:;",
@@ -96,23 +96,23 @@ export const FEATURE_MARKERS = {
     requiredMarkers: {
       webviewFollowUp: [
         "case`imageGeneration`:{let e=typeof n.src==`string`?n.src.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:n.status});break}",
-        "case`imageView`:{let e=typeof n.path==`string`?Uy(n.path):null,r=e??(typeof n.path==`string`?n.path.trim():``);if(r.length===0)break;let i=e==null?r:`app://fs/@fs${encodeURI(e).replaceAll(`#`,`%23`).replaceAll(`?`,`%3F`)}?codexImageViewId=${encodeURIComponent(String(n.id??``))}`;a.push({type:`generated-image`,id:n.id,src:i,status:`completed`});break}",
-        "case`imageView`:return typeof e.path==`string`&&Uy(e.path)!=null;",
+        "case`imageView`:{let e=typeof n.path==`string`?Cx(n.path):null,r=e??(typeof n.path==`string`?n.path.trim():``);if(r.length===0)break;let i=e==null?r:`app://fs/@fs${encodeURI(e).replaceAll(`#`,`%23`).replaceAll(`?`,`%3F`)}?codexImageViewId=${encodeURIComponent(String(n.id??``))}`;a.push({type:`generated-image`,id:n.id,src:i,status:`completed`});break}",
+        "case`imageView`:return typeof e.path==`string`&&Cx(e.path)!=null;",
       ],
       webviewUsePlugins: [
-        "function C(e){if(typeof e!==`string`)return null;let n=e.trim();",
+        "function C(e){if(typeof e!==`string`)return null;let t=e.trim();",
       ],
     },
     forbiddenMarkers: {
       webviewFollowUp: [
-        "case`imageView`:{let e=Uy(n.path),r=e==null?null:Ey(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}",
+        "case`imageView`:{let e=Cx(n.path),r=e==null?null:sx(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}",
         "case`imageView`:{let e=j_(n.path)??n.path.trim();if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:`completed`});break}",
         "case`imageView`:{let e=typeof n.path==`string`?Uy(n.path)??n.path.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:`completed`});break}",
         "case`imageGeneration`:a.push({type:`generated-image`,id:n.id,src:n.src,status:n.status});break;",
-        "case`imageView`:return Uy(e.path)!=null;",
+        "case`imageView`:return Cx(e.path)!=null;",
       ],
       webviewUsePlugins: [
-        "function C(e){if(e==null)return null;let n=e.trim();",
+        "function C(e){if(e==null)return null;let t=e.trim();",
       ],
     },
   },
@@ -227,27 +227,19 @@ export const FEATURE_MARKERS = {
       "linuxReadBrowserUseState",
       "linuxResolveBrowserApprovalPolicy",
       "Linux browser-use state unavailable",
-      "await Vm()",
-      "await Gm(`allowed`,e.origin)",
-      "await Km(e.transferKind,`allowed`,e.origin)",
+      "await A_()",
+      "await F_(`allowed`,e.origin)",
+      "await I_(e.transferKind,`allowed`,e.origin)",
       "sensitive_data===`browsing_history`",
       "file_transfer===`download`||t.file_transfer===`upload`",
       "createServer({allowHalfOpen:!0}",
       "Linux authenticated fetch URL is not allowlisted",
       "Linux browser approval request is not allowlisted",
-      "prodApiBaseUrl:n.prodApiBaseUrl,hostId:I});o.startLinuxBrowserSecurityServers?.();let s=new",
+      "prodApiBaseUrl:r.prodApiBaseUrl,hostId:L});u.startLinuxBrowserSecurityServers?.();let d=new",
     ],
     forbiddenMarkers: [
-      "prodApiBaseUrl:n.prodApiBaseUrl}),s=new",
+      "prodApiBaseUrl:r.prodApiBaseUrl}),d=new",
       "linux-browser-origin-approvals.json",
-      "await Sp()",
-      "await Ep(`allowed`,e.origin)",
-      "await Dp(e.transferKind,`allowed`,e.origin)",
-      "await tp(`allowed`,e.origin)",
-      "await np(e.transferKind,`allowed`,e.origin)",
-      "await Zf()",
-      "await Qf(`allowed`,e.origin)",
-      "await $f(e.transferKind,`allowed`,e.origin)",
     ],
   },
   "chrome-setup-url": {
@@ -275,7 +267,7 @@ export const FEATURE_MARKERS = {
   "chrome-extension-status": {
     requiredMarkers: [
       /"chrome-extension-installed-read":async\(\{extensionId:e\}\)=>\(\{installed:[$A-Z_a-z][$\w]*\(\{extensionId:e\}\)\}\)/,
-      "n===`linux`?(0,i.join)(e,`.config`,`google-chrome`):null",
+      "n===`linux`?(0,o.join)(e,`.config`,`google-chrome`):null",
     ],
     forbiddenMarkers: [
       "function da({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,i.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,i.join)(t??(0,i.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
@@ -286,13 +278,13 @@ export const FEATURE_MARKERS = {
       webviewPluginAvailability: [
         "function codexLinuxPluginHasMcp",
         "function codexLinuxRestartAppServerForPluginMcp",
-        "codexLinuxRestartAppServerForPluginMcp(l,t,E)",
+        "codexLinuxRestartAppServerForPluginMcp(f,t,D)",
         "codex-app-server-restart",
       ],
     },
     forbiddenMarkers: {
       webviewPluginAvailability: [
-        "let g=await We({authPolicy:f.authPolicy,hostId:t,plugin:l,queryClient:o,windowType:`electron`});if(f.authPolicy===`ON_USE`",
+        "let _=await qe({authPolicy:h.authPolicy,codexHome:c,hostId:t,plugin:f,queryClient:a,windowType:`electron`});if(h.authPolicy===`ON_USE`",
       ],
     },
   },
@@ -348,9 +340,9 @@ export const FEATURE_MARKERS = {
   "avatar-overlay-transparency": {
     requiredMarkers: {
       main: [
-        "case`avatarOverlay`:return{...WY({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:gY,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
-        "title:`Codex Pet Overlay`,width:mG.width,height:mG.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:MG",
-        "zG={width:320,height:131}",
+        "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:k1,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
+        "title:`Codex Pet Overlay`,width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
+        "JX={width:320,height:131}",
       ],
       webviewAvatarOverlay: [
         "codexLinuxEnsureAvatarOverlayTransparent",
@@ -358,19 +350,19 @@ export const FEATURE_MARKERS = {
         "html,body,#root{background:transparent!important;background-color:transparent!important;}",
         "function pn(){codexLinuxEnsureAvatarOverlayTransparent();let e=(0,R.c)(9),",
         "nt=64",
-        "he?`whitespace-pre-wrap`:x==null?`line-clamp-4`:void 0",
+        "I?`whitespace-pre-wrap`:b==null?`line-clamp-4`:void 0",
         "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:36,top:56,width:320,height:131},viewport:{width:356,height:320}}",
       ],
     },
     forbiddenMarkers: {
       main: [
-        "case`avatarOverlay`:return{...WY({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
-        "title:n.app.getName(),width:mG.width,height:mG.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:MG",
-        "zG={width:276,height:131}",
+        "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
+        "title:i.app.getName(),width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
+        "JX={width:276,height:131}",
       ],
       webviewAvatarOverlay: [
         "nt=32",
-        "he?`whitespace-pre-wrap`:x==null?`line-clamp-2`:void 0",
+        "I?`whitespace-pre-wrap`:b==null?`line-clamp-2`:void 0",
         "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:80,top:56,width:276,height:131},viewport:{width:356,height:320}}",
       ],
     },

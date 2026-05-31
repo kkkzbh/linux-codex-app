@@ -5,6 +5,7 @@
       "args": [
         "./scripts/dolphin-mcp.mjs"
       ],
+      "cwd": ".",
       "env": {}
     }
   }

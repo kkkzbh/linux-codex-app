@@ -2,10 +2,10 @@ import { FEATURE_MARKERS } from "../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
 const upstreamChromeProfileRoot =
-  "function fa({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,i.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,i.join)(t??(0,i.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}";
+  "function Co({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,o.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,o.join)(t??(0,o.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}";
 
 const linuxChromeProfileRoot =
-  "function fa({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,i.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,i.join)(t??(0,i.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):n===`linux`?(0,i.join)(e,`.config`,`google-chrome`):null}";
+  "function Co({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,o.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,o.join)(t??(0,o.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):n===`linux`?(0,o.join)(e,`.config`,`google-chrome`):null}";
 
 export const chromeExtensionStatusFeature = {
   id: "chrome-extension-status",

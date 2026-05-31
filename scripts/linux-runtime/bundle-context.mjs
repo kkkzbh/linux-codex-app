@@ -56,7 +56,7 @@ export function createLinuxPatchContext(extractedAppDir) {
   const webviewFollowUpPath = findAssetFileContaining(
     webviewAssetsDir,
     /^[^.]+\.js$/,
-    "case`imageView`:return",
+    "case`steered`:a.push({type:`steered`",
     "webview follow-up",
   );
   const webviewMarkdownPath = findAssetFileContaining(

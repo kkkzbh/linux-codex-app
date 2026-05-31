@@ -47,6 +47,7 @@ target_arch="$(json_field targetArch)"
 dmg_url="$(json_field dmg.url)"
 dmg_size="$(json_field dmg.size)"
 dmg_sha256="$(json_field dmg.sha256)"
+app_asar_path="$(json_field dmg.appAsarPath)"
 app_asar_sha256="$(json_field dmg.appAsarSha256)"
 electron_version="$(json_field electron.version)"
 sevenzip_version="$(json_field buildTools.sevenZip.version)"
@@ -111,7 +112,7 @@ if [ "$actual_sha" != "$dmg_sha256" ]; then
 fi
 
 info "Verifying upstream app.asar hash"
-actual_app_asar_sha="$("$sevenzip_bin" e -so "$dmg_path" 'Codex.app/Contents/Resources/app.asar' | sha256sum | awk '{print $1}')"
+actual_app_asar_sha="$("$sevenzip_bin" e -so "$dmg_path" "$app_asar_path" | sha256sum | awk '{print $1}')"
 if [ "$actual_app_asar_sha" != "$app_asar_sha256" ]; then
     error "app.asar sha256 mismatch: expected $app_asar_sha256, got $actual_app_asar_sha"
 fi
@@ -120,6 +121,7 @@ info "Building converted runtime into RPM payload"
 CODEX_INSTALL_DIR="$runtime_dir" \
 CODEX_SKIP_CODEX_CLI=1 \
 CODEX_LOCAL_PLUGIN_NAMES="${CODEX_RELEASE_LOCAL_PLUGINS:-}" \
+CODEX_LINUX_DESKTOP_ASSETS=0 \
 CODEX_SEVENZIP="$sevenzip_bin" \
 "$REPO_ROOT/install.sh" "$dmg_path"
 
@@ -130,7 +132,9 @@ if [ -f "$runtime_dir/version" ]; then
     fi
 fi
 
-CODEX_VERIFY_LOCAL_PLUGINS="${CODEX_RELEASE_LOCAL_PLUGINS:-}" "$REPO_ROOT/scripts/verify-install.sh" "$runtime_dir"
+CODEX_VERIFY_LOCAL_PLUGINS="${CODEX_RELEASE_LOCAL_PLUGINS:-}" \
+CODEX_LINUX_DESKTOP_ASSETS=0 \
+"$REPO_ROOT/scripts/verify-install.sh" "$runtime_dir"
 
 info "Installing pinned Codex CLI into RPM payload"
 mkdir -p "$cli_dir"

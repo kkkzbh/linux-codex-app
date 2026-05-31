@@ -5,6 +5,7 @@ APP_ROOT="${LINUX_CODEX_APP_ROOT:-/opt/linux-codex-app}"
 CURRENT_RUNTIME="${LINUX_CODEX_APP_CURRENT:-$APP_ROOT/current}"
 LIBEXEC_ROOT="${LINUX_CODEX_APP_LIBEXEC:-/usr/libexec/linux-codex-app}"
 SHARE_ROOT="${LINUX_CODEX_APP_SHARE:-/usr/share/linux-codex-app}"
+PLUGIN_SHARE_ROOT="${LINUX_CODEX_APP_PLUGIN_SHARE:-/usr/share}"
 VERIFY_SCRIPT="$LIBEXEC_ROOT/scripts/verify-install.sh"
 UPSTREAM_MANIFEST="$SHARE_ROOT/upstream.json"
 
@@ -75,6 +76,60 @@ remove_marked_wrapper() {
     info "Removed Codex-managed wrapper: $path"
 }
 
+installed_optional_plugins() {
+    local plugin
+
+    for plugin in dolphin kitty; do
+        if [ -d "$SHARE_ROOT/plugins/$plugin" ]; then
+            printf '%s\n' "$plugin"
+        fi
+    done
+}
+
+require_plugin_asset() {
+    local path="$1"
+    local description="$2"
+
+    [ -e "$path" ] || error "Installed plugin asset missing: $description: $path"
+}
+
+require_plugin_executable() {
+    local path="$1"
+    local description="$2"
+
+    require_plugin_asset "$path" "$description"
+    [ -x "$path" ] || error "Installed plugin executable is not executable: $description: $path"
+}
+
+verify_optional_plugin() {
+    local plugin="$1"
+    local root="$SHARE_ROOT/plugins/$plugin"
+
+    case "$plugin" in
+        dolphin)
+            require_plugin_asset "$root/.codex-plugin/plugin.json" "Dolphin plugin manifest"
+            require_plugin_asset "$root/.mcp.json" "Dolphin MCP manifest"
+            require_plugin_executable "$root/scripts/dolphin-mcp.mjs" "Dolphin MCP server"
+            require_plugin_asset "$root/scripts/dolphin-lib.mjs" "Dolphin MCP library"
+            require_plugin_executable "$root/scripts/dolphin-a11y.py" "Dolphin accessibility helper"
+            require_plugin_asset "$root/assets/org.kde.dolphin.png" "Dolphin plugin icon"
+            require_plugin_asset "$PLUGIN_SHARE_ROOT/linux-codex-app-plugin-dolphin/.agents/plugins/marketplace.json" "Dolphin marketplace entry"
+            ;;
+        kitty)
+            require_plugin_asset "$root/.codex-plugin/plugin.json" "Kitty plugin manifest"
+            require_plugin_asset "$root/.mcp.json" "Kitty MCP manifest"
+            require_plugin_executable "$root/scripts/kitty-mcp.mjs" "Kitty MCP server"
+            require_plugin_asset "$root/scripts/kitty-lib.mjs" "Kitty MCP library"
+            require_plugin_asset "$root/skills/kitty/SKILL.md" "Kitty skill"
+            require_plugin_asset "$root/assets/kitty.png" "Kitty plugin icon"
+            require_plugin_asset "$PLUGIN_SHARE_ROOT/linux-codex-app-plugin-kitty/.agents/plugins/marketplace.json" "Kitty marketplace entry"
+            ;;
+        *)
+            error "Unknown installed optional plugin: $plugin"
+            ;;
+    esac
+}
+
 status_command() {
     printf 'runtime=%s\n' "$CURRENT_RUNTIME"
 
@@ -100,14 +155,21 @@ console.log(`codex_cli=${manifest.codexCli?.version ?? ""}`);
     fi
 
     if [ -d "$SHARE_ROOT/plugins" ]; then
-        find "$SHARE_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf 'plugin=%f\n' | sort
+        installed_optional_plugins | sed 's/^/plugin=/'
     fi
 }
 
 verify_command() {
     [ -x "$VERIFY_SCRIPT" ] || error "verify helper missing: $VERIFY_SCRIPT"
     [ -d "$CURRENT_RUNTIME" ] || error "runtime missing: $CURRENT_RUNTIME"
-    "$VERIFY_SCRIPT" "$CURRENT_RUNTIME"
+
+    CODEX_VERIFY_LOCAL_PLUGINS="" CODEX_LINUX_DESKTOP_ASSETS=0 "$VERIFY_SCRIPT" "$CURRENT_RUNTIME"
+
+    local plugin
+    while IFS= read -r plugin; do
+        [ -n "$plugin" ] || continue
+        verify_optional_plugin "$plugin"
+    done < <(installed_optional_plugins)
 }
 
 enable_command() {

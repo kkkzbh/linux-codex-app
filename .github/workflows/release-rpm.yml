@@ -5,7 +5,7 @@ on:
     inputs:
       manifest:
         description: "Pinned upstream manifest path"
-        default: "upstream/codex-app-20260527.json"
+        default: "upstream/codex-app-20260530.json"
         required: true
 
 permissions:

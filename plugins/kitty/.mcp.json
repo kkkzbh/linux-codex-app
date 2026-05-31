@@ -5,6 +5,7 @@
       "args": [
         "./scripts/kitty-mcp.mjs"
       ],
+      "cwd": ".",
       "env": {}
     }
   }

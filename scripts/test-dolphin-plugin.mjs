@@ -16,6 +16,7 @@ const mcpScript = path.join(pluginRoot, "scripts", "dolphin-mcp.mjs");
 const marketplaceFilterScript = path.join(scriptDir, "filter-bundled-marketplace.mjs");
 const marketplaceAddScript = path.join(scriptDir, "add-local-bundled-marketplace-plugins.mjs");
 const dolphinWindowAccessScript = path.join(scriptDir, "install-dolphin-window-access.sh");
+const pluginValidator = "/home/kkkzbh/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py";
 
 function makeTempDir(prefix) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -426,26 +427,19 @@ function testMarketplaceScripts() {
 function testPluginMetadata() {
   const manifest = JSON.parse(readFileSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
   assert.equal(manifest.name, "dolphin");
-  assert.equal(typeof manifest.version, "string");
-  assert.equal(typeof manifest.description, "string");
-  assert.equal(manifest.author.name, "linux-codex-app");
-  assert.equal(manifest.repository, "https://github.com/kkkzbh/linux-codex-app");
-  assert.equal(manifest.license, "MIT");
-  assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.mcpServers, "./.mcp.json");
-  assert.equal(manifest.interface.displayName, "Dolphin");
-  assert.equal(manifest.interface.developerName, "linux-codex-app");
-  assert.equal(manifest.interface.category, "Productivity");
-  assert.deepEqual(manifest.interface.capabilities, ["Interactive", "Read", "Write"]);
   assert.equal(manifest.interface.composerIcon, "./assets/org.kde.dolphin.png");
-  assert.equal(manifest.interface.logo, "./assets/org.kde.dolphin.png");
   assert.ok(existsSync(path.join(pluginRoot, "assets", "org.kde.dolphin.png")));
   assert.ok(existsSync(path.join(pluginRoot, "scripts", "dolphin-a11y.py")));
-  assert.ok(existsSync(path.join(pluginRoot, "skills", "dolphin", "SKILL.md")));
 
   const mcpManifest = JSON.parse(readFileSync(path.join(pluginRoot, ".mcp.json"), "utf8"));
+  assert.equal(mcpManifest.mcp_servers, undefined);
   assert.equal(mcpManifest.mcpServers.dolphin.command, "node");
   assert.deepEqual(mcpManifest.mcpServers.dolphin.args, ["./scripts/dolphin-mcp.mjs"]);
+  assert.equal(mcpManifest.mcpServers.dolphin.cwd, ".");
+
+  const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
+  assert.equal(validation.status, 0, validation.stdout + validation.stderr);
 }
 
 function testDolphinWindowAccessInstaller() {

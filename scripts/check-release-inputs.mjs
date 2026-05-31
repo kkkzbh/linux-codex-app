@@ -49,6 +49,7 @@ function validateManifest(manifestPath) {
   requirePositiveInteger(manifest.dmg?.size, `${manifestPath}:dmg.size`);
   requireString(manifest.dmg?.etag, `${manifestPath}:dmg.etag`);
   requireString(manifest.dmg?.lastModified, `${manifestPath}:dmg.lastModified`);
+  requireString(manifest.dmg?.appAsarPath, `${manifestPath}:dmg.appAsarPath`);
   requireSha256(manifest.dmg?.sha256, `${manifestPath}:dmg.sha256`);
   requireSha256(manifest.dmg?.appAsarSha256, `${manifestPath}:dmg.appAsarSha256`);
   requireString(manifest.electron?.version, `${manifestPath}:electron.version`);

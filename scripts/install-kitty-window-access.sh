@@ -264,14 +264,14 @@ MimeType=image/*;application/x-sh;application/x-shellscript;inode/directory;text
 
 exec_pattern = re.compile(r"^(Exec=)(?:(?:env\s+)?[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*/)?kitty(?P<args>(?:\s+.*)?)$")
 
-for name, default_text in defaults.items():
+for name, fallback in defaults.items():
     target = applications_dir / name
     source_candidates = [target]
     for item in xdg_data_dirs.split(":"):
         if item:
             source_candidates.append(Path(item) / "applications" / name)
     source = next((candidate for candidate in source_candidates if candidate.exists()), None)
-    text = source.read_text(encoding="utf-8") if source else default_text
+    text = source.read_text(encoding="utf-8") if source else fallback
     if target.exists() and source == target and "X-Codex-KittyWindowAccess=true" not in text:
         backup = target.with_name(f"{target.name}.codex-backup-{time.strftime('%Y%m%d-%H%M%S')}")
         shutil.copy2(target, backup)

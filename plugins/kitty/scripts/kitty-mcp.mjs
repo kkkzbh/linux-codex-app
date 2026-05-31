@@ -4,7 +4,7 @@ import { createKittyController } from "./kitty-lib.mjs";
 
 const serverInfo = {
   name: "kitty",
-  version: "0.1.0",
+  version: "0.1.5",
 };
 
 const controller = createKittyController();
@@ -64,7 +64,7 @@ async function handleRequest(message) {
         capabilities: { tools: {} },
         serverInfo,
         instructions:
-          "Use Kitty tools for Linux terminal work that should be visible and controllable in managed kitty windows. Prefer kitty_run plus kitty_read for commands; use kitty_send only for explicit interactive input.",
+          "Use numbered Kitty terminals for visible Linux terminal work. Use kitty_list to inspect available numbered terminals and windows, kitty_send with command/text/key for all terminal input, and kitty_read for observing the current terminal screen. kitty_send returns terminal feedback, not process-level exit codes.",
       });
       return;
     case "ping":

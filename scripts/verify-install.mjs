@@ -51,7 +51,7 @@ function requireExecutable(pathValue) {
 }
 
 function expectedLocalPluginNames() {
-  const raw = process.env.CODEX_VERIFY_LOCAL_PLUGINS ?? process.env.CODEX_LOCAL_PLUGIN_NAMES ?? "";
+  const raw = process.env.CODEX_VERIFY_LOCAL_PLUGINS ?? process.env.CODEX_LOCAL_PLUGIN_NAMES ?? "dolphin,kitty";
   return raw
     .split(/[\s,]+/)
     .map((name) => name.trim())
@@ -212,14 +212,14 @@ function verifyRemoteControlBackendSource(source) {
 
 function verifyRemoteControlVisibilitySource(bundleSources) {
   if (
-    !bundleSources.webviewRemoteControlConnectionsVisibility.includes(
-      "function ke({remoteControlConnectionsState:e,slingshotEnabled:t}){return!0}",
+    !/function [$A-Z_a-z][$\w]*\(\{remoteControlConnectionsState:[$A-Z_a-z][$\w]*,slingshotEnabled:[$A-Z_a-z][$\w]*\}\)\{return!0\}/.test(
+      bundleSources.webviewRemoteControlConnectionsVisibility,
     )
   ) {
     fail("Expected webview remote-control connections visibility gate to be open");
   }
 
-  if (!bundleSources.webviewRemoteConnectionVisibility.includes("function d(){return!0}")) {
+  if (!/function [$A-Z_a-z][$\w]*\(\)\{return!0\}/.test(bundleSources.webviewRemoteConnectionVisibility)) {
     fail("Expected webview remote connections feature gate to be open");
   }
 
@@ -251,7 +251,7 @@ function verifyChromeExtensionStatusInBundle(resourcesDir, appAsarPath) {
       fail("Expected Electron main bundle to expose chrome-extension-installed-read");
     }
 
-    if (!source.includes("n===`linux`?(0,i.join)(e,`.config`,`google-chrome`):null")) {
+    if (!/n===`linux`\?\(0,[$A-Z_a-z][$\w]*\.join\)\(e,`\.config`,`google-chrome`\):null/.test(source)) {
       fail("Expected Electron main bundle to detect installed Chrome extensions under ~/.config/google-chrome on Linux");
     }
   } finally {
@@ -398,7 +398,7 @@ function verifyBundledPlugins(resourcesDir) {
   if (chromeClientSource.includes("OS(Zf)") || chromeClientSource.includes("map(e=>BS.resolve(Zf,e))")) {
     fail(`Chrome client should not enumerate legacy Linux browser socket directories: ${chromeClient}`);
   }
-  if (!chromeClientSource.includes('X5()==="linux"?".config/google-chrome"')) {
+  if (!/[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/.test(chromeClientSource)) {
     fail(`Expected Chrome client to use Linux Chrome profile root: ${chromeClient}`);
   }
   if (!chromeClientSource.includes("waitForArrival:!1,x:r,y:n")) {
@@ -444,8 +444,14 @@ function verifyBundledPlugins(resourcesDir) {
     }
 
     const dolphinMcp = JSON.parse(readFileSync(dolphinMcpJson, "utf8"));
+    if (dolphinMcp?.mcp_servers) {
+      fail(`Expected Dolphin MCP manifest to use the runtime-supported mcpServers shape: ${dolphinMcpJson}`);
+    }
     if (dolphinMcp?.mcpServers?.dolphin?.args?.[0] !== "./scripts/dolphin-mcp.mjs") {
       fail(`Expected Dolphin MCP manifest to launch scripts/dolphin-mcp.mjs: ${dolphinMcpJson}`);
+    }
+    if (dolphinMcp?.mcpServers?.dolphin?.cwd !== ".") {
+      fail(`Expected Dolphin MCP manifest to declare plugin-root cwd: ${dolphinMcpJson}`);
     }
   }
 
@@ -467,8 +473,14 @@ function verifyBundledPlugins(resourcesDir) {
     }
 
     const kittyMcp = JSON.parse(readFileSync(kittyMcpJson, "utf8"));
+    if (kittyMcp?.mcp_servers) {
+      fail(`Expected Kitty MCP manifest to use the runtime-supported mcpServers shape: ${kittyMcpJson}`);
+    }
     if (kittyMcp?.mcpServers?.kitty?.args?.[0] !== "./scripts/kitty-mcp.mjs") {
       fail(`Expected Kitty MCP manifest to launch scripts/kitty-mcp.mjs: ${kittyMcpJson}`);
+    }
+    if (kittyMcp?.mcpServers?.kitty?.cwd !== ".") {
+      fail(`Expected Kitty MCP manifest to declare plugin-root cwd: ${kittyMcpJson}`);
     }
   }
 
@@ -598,8 +610,8 @@ function main() {
   verifyChromeExtensionStatusInBundle(resourcesDir, appAsarPath);
 
   const electronVersion = readFileSync(versionPath, "utf8").trim();
-  if (electronVersion !== "40.0.0") {
-    fail(`Expected Electron 40.0.0 runtime, got: ${electronVersion || "<empty>"}`);
+  if (electronVersion !== "42.1.0") {
+    fail(`Expected Electron 42.1.0 runtime, got: ${electronVersion || "<empty>"}`);
   }
 
   console.error(`[INFO] Verified staged install: ${installDir}`);

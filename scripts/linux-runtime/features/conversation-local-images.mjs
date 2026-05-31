@@ -2,10 +2,10 @@ import { FEATURE_MARKERS } from "../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
 const upstreamImageViewCase =
-  "case`imageView`:{let e=Uy(n.path),r=e==null?null:Ey(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}";
+  "case`imageView`:{let e=Cx(n.path),r=e==null?null:sx(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}";
 
 const patchedImageViewCase =
-  "case`imageView`:{let e=typeof n.path==`string`?Uy(n.path):null,r=e??(typeof n.path==`string`?n.path.trim():``);if(r.length===0)break;let i=e==null?r:`app://fs/@fs${encodeURI(e).replaceAll(`#`,`%23`).replaceAll(`?`,`%3F`)}?codexImageViewId=${encodeURIComponent(String(n.id??``))}`;a.push({type:`generated-image`,id:n.id,src:i,status:`completed`});break}";
+  "case`imageView`:{let e=typeof n.path==`string`?Cx(n.path):null,r=e??(typeof n.path==`string`?n.path.trim():``);if(r.length===0)break;let i=e==null?r:`app://fs/@fs${encodeURI(e).replaceAll(`#`,`%23`).replaceAll(`?`,`%3F`)}?codexImageViewId=${encodeURIComponent(String(n.id??``))}`;a.push({type:`generated-image`,id:n.id,src:i,status:`completed`});break}";
 
 const upstreamImageGenerationCase =
   "case`imageGeneration`:a.push({type:`generated-image`,id:n.id,src:n.src,status:n.status});break;";
@@ -13,15 +13,15 @@ const upstreamImageGenerationCase =
 const patchedImageGenerationCase =
   "case`imageGeneration`:{let e=typeof n.src==`string`?n.src.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:n.status});break}";
 
-const upstreamRenderableImageViewCase = "case`imageView`:return Uy(e.path)!=null;";
+const upstreamRenderableImageViewCase = "case`imageView`:return Cx(e.path)!=null;";
 
-const patchedRenderableImageViewCase = "case`imageView`:return typeof e.path==`string`&&Uy(e.path)!=null;";
+const patchedRenderableImageViewCase = "case`imageView`:return typeof e.path==`string`&&Cx(e.path)!=null;";
 
 const upstreamLocalImageHelper =
-  "function C(e){if(e==null)return null;let n=e.trim();if(n.length===0)return null;let r=n.toLowerCase();if(r.startsWith(`data:`)||r.startsWith(`http:`)||r.startsWith(`https:`)||r.startsWith(`file:`)||r.startsWith(`vscode-resource:`)||r.startsWith(`vscode-webview:`)||r.startsWith(`vscode-file:`))return null;let i=t(n);return o(i)?i:null}";
+  "function C(e){if(e==null)return null;let t=e.trim();if(t.length===0)return null;let n=t.toLowerCase();if(n.startsWith(`data:`)||n.startsWith(`http:`)||n.startsWith(`https:`)||n.startsWith(`file:`)||n.startsWith(`vscode-resource:`)||n.startsWith(`vscode-webview:`)||n.startsWith(`vscode-file:`))return null;let r=a(t);return d(r)?r:null}";
 
 const patchedLocalImageHelper =
-  "function C(e){if(typeof e!==`string`)return null;let n=e.trim();if(n.length===0)return null;let r=n.toLowerCase();if(r.startsWith(`data:`)||r.startsWith(`http:`)||r.startsWith(`https:`)||r.startsWith(`file:`)||r.startsWith(`vscode-resource:`)||r.startsWith(`vscode-webview:`)||r.startsWith(`vscode-file:`))return null;let i=t(n);return o(i)?i:null}";
+  "function C(e){if(typeof e!==`string`)return null;let t=e.trim();if(t.length===0)return null;let n=t.toLowerCase();if(n.startsWith(`data:`)||n.startsWith(`http:`)||n.startsWith(`https:`)||n.startsWith(`file:`)||n.startsWith(`vscode-resource:`)||n.startsWith(`vscode-webview:`)||n.startsWith(`vscode-file:`))return null;let r=a(t);return d(r)?r:null}";
 
 export const conversationLocalImagesFeature = {
   id: "conversation-local-images",
