@@ -1,0 +1,3 @@
+display_name: Linux Codex App Release
+short_description: Sync verified codex-app Linux changes and publish signed RPM releases.
+default_prompt: Sync the verified codex-app Linux installer changes into linux-codex-app, run checks, publish the RPM release, and verify the DNF repository.
