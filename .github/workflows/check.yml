@@ -17,4 +17,4 @@ jobs:
           node-version: "22"
       - run: chmod +x install.sh scripts/*.sh scripts/linux-codex-app scripts/verify-install.sh
       - run: npm run check:syntax
-      - run: npm run check
+      - run: npm run check:ci

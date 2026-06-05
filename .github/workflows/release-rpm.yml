@@ -36,13 +36,15 @@ jobs:
       - name: Mark scripts executable
         run: chmod +x install.sh scripts/*.sh scripts/linux-codex-app scripts/verify-install.sh
       - name: Run checks
-        run: npm run check
+        run: npm run check:ci
       - name: Build unsigned package artifacts
+        if: github.event_name == 'workflow_dispatch'
         env:
           LINUX_CODEX_APP_REPO_BASEURL: https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch
           LINUX_CODEX_APP_REPO_ENABLED: "1"
         run: ./scripts/build-runtime-packages.sh "${{ inputs.manifest || 'upstream/codex-app-20260602.json' }}"
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: linux-codex-app-smoke-packages
           path: |

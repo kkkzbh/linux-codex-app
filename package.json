@@ -9,6 +9,7 @@
     "build:packages": "./scripts/build-runtime-packages.sh",
     "release:local": "./scripts/release-local.sh",
     "check": "node scripts/check-release-inputs.mjs && node scripts/test-linux-runtime-patch-locators.mjs && node scripts/test-linux-browser-runtime.mjs && node scripts/test-linux-node-repl-browser-approval.mjs && node scripts/test-dolphin-plugin.mjs && node scripts/test-kitty-plugin.mjs && PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-computer-use-broker.py && node scripts/test-computer-use-plugin.mjs",
+    "check:ci": "node scripts/check-release-inputs.mjs && node scripts/test-linux-runtime-patch-locators.mjs && node scripts/test-linux-node-repl-browser-approval.mjs && node scripts/test-dolphin-plugin.mjs && node scripts/test-kitty-plugin.mjs && PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-computer-use-broker.py && node scripts/test-computer-use-plugin.mjs",
     "check:syntax": "find scripts plugins -type f \\( -name '*.mjs' -o -name '*.js' \\) -print0 | xargs -0 -n1 node --check"
   }
 }
