@@ -452,6 +452,10 @@ function testPluginMetadata() {
   assert.deepEqual(mcpManifest.dolphin.args, ["./scripts/dolphin-mcp.mjs"]);
   assert.equal(mcpManifest.dolphin.cwd, ".");
 
+  if (!existsSync(pluginValidator)) {
+    return;
+  }
+
   const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
   const validationOutput = validation.stdout + validation.stderr;
   if (

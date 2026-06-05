@@ -1624,6 +1624,10 @@ function testPluginMetadata() {
   assert.deepEqual(mcpManifest.kitty.args, ["./scripts/kitty-mcp.mjs"]);
   assert.equal(mcpManifest.kitty.cwd, ".");
 
+  if (!existsSync(pluginValidator)) {
+    return;
+  }
+
   const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
   const validationOutput = validation.stdout + validation.stderr;
   if (
