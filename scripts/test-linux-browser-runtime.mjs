@@ -2,7 +2,15 @@
 
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -24,27 +32,121 @@ const runtimeDir = path.join(scriptDir, "linux-browser-runtime");
 const chromeFixtureRoot = resolveChromeFixtureRoot();
 
 function resolveChromeFixtureRoot() {
-  const cacheRoot = "/home/kkkzbh/.codex/plugins/cache/openai-bundled/chrome";
-  const preferredRoot = path.join(cacheRoot, "0.1.7");
-  if (existsSync(path.join(preferredRoot, "scripts", "browser-client.mjs"))) {
-    return preferredRoot;
+  const candidates = chromeFixtureCandidates();
+  const searched = [];
+
+  for (const candidate of candidates) {
+    searched.push(candidate);
+    if (existsSync(path.join(candidate, "scripts", "browser-client.mjs"))) {
+      return candidate;
+    }
   }
 
-  if (!existsSync(cacheRoot)) {
-    throw new Error(`Chrome plugin fixture cache is missing: ${cacheRoot}`);
+  throw new Error(
+    [
+      "Could not find a Chrome plugin fixture containing scripts/browser-client.mjs.",
+      "Set CODEX_CHROME_PLUGIN_FIXTURE_ROOT to an extracted or staged chrome plugin root.",
+      "Searched:",
+      ...searched.map((candidate) => `- ${candidate}`),
+    ].join("\n"),
+  );
+}
+
+function chromeFixtureCandidates() {
+  const repoRoot = path.dirname(installerRoot);
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  const candidates = [];
+
+  addCandidate(candidates, process.env.CODEX_CHROME_PLUGIN_FIXTURE_ROOT);
+  addCandidate(
+    candidates,
+    path.join(
+      os.homedir(),
+      ".local",
+      "share",
+      "codex-app",
+      "current",
+      "resources",
+      "plugins",
+      "openai-bundled",
+      "plugins",
+      "chrome",
+    ),
+  );
+
+  for (const stagedDir of sortedChildDirs(path.join(repoRoot, "staged-installs"))) {
+    addCandidate(
+      candidates,
+      path.join(stagedDir, "resources", "plugins", "openai-bundled", "plugins", "chrome"),
+    );
   }
 
-  const candidates = readdirSync(cacheRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(cacheRoot, entry.name))
-    .filter((candidate) => existsSync(path.join(candidate, "scripts", "browser-client.mjs")))
-    .sort();
+  addCandidate(
+    candidates,
+    path.join(installerRoot, "codex-app", "resources", "plugins", "openai-bundled", "plugins", "chrome"),
+  );
 
-  const latest = candidates.at(-1);
-  if (!latest) {
-    throw new Error(`Chrome plugin fixture cache does not contain browser-client.mjs: ${cacheRoot}`);
+  for (const probeDir of sortedChildDirs(installerRoot).filter((dir) =>
+    /^\.((plugin|update)-probe)-/.test(path.basename(dir)),
+  )) {
+    addCandidate(
+      candidates,
+      path.join(
+        probeDir,
+        "dmg-extract",
+        "Codex Installer",
+        "Codex.app",
+        "Contents",
+        "Resources",
+        "plugins",
+        "openai-bundled",
+        "plugins",
+        "chrome",
+      ),
+    );
   }
-  return latest;
+
+  addVersionedCacheCandidates(candidates, path.join(codexHome, "plugins", "cache", "openai-bundled", "chrome"));
+
+  return uniquePaths(candidates);
+}
+
+function addVersionedCacheCandidates(candidates, cacheRoot) {
+  addCandidate(candidates, cacheRoot);
+  for (const candidate of sortedChildDirs(cacheRoot)) {
+    addCandidate(candidates, candidate);
+  }
+}
+
+function addCandidate(candidates, candidate) {
+  if (typeof candidate !== "string" || candidate.trim().length === 0) {
+    return;
+  }
+
+  candidates.push(path.resolve(candidate));
+}
+
+function sortedChildDirs(parentDir) {
+  if (!existsSync(parentDir)) {
+    return [];
+  }
+
+  return readdirSync(parentDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .map((entry) => path.join(parentDir, entry.name))
+    .sort((left, right) => comparePathFreshness(right, left));
+}
+
+function comparePathFreshness(left, right) {
+  try {
+    return statSync(left).mtimeMs - statSync(right).mtimeMs || left.localeCompare(right);
+  } catch {
+    return left.localeCompare(right);
+  }
+}
+
+function uniquePaths(paths) {
+  return [...new Set(paths)];
 }
 
 function makeTempDir(prefix) {

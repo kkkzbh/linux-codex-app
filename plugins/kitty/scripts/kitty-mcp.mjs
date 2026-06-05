@@ -4,7 +4,7 @@ import { createKittyController } from "./kitty-lib.mjs";
 
 const serverInfo = {
   name: "kitty",
-  version: "0.1.5",
+  version: "0.1.14",
 };
 
 const controller = createKittyController();
@@ -64,7 +64,7 @@ async function handleRequest(message) {
         capabilities: { tools: {} },
         serverInfo,
         instructions:
-          "Use numbered Kitty terminals for visible Linux terminal work. Use kitty_list to inspect available numbered terminals and windows, kitty_send with command/text/key for all terminal input, and kitty_read for observing the current terminal screen. kitty_send returns terminal feedback, not process-level exit codes.",
+          "Use numbered Kitty terminals for visible Linux terminal work. Use kitty_list to inspect available numbered terminals and windows, kitty_open to open a terminal without sending input, kitty_send with command/text/key for terminal input, and kitty_read for observing the current terminal screen. kitty_open and other open paths are designed not to take desktop focus. kitty_send returns terminal feedback, not process-level exit codes.",
       });
       return;
     case "ping":

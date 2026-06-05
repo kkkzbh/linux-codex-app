@@ -8,6 +8,10 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/dmg-cache.sh
+source "$SCRIPT_DIR/scripts/dmg-cache.sh"
+# shellcheck source=scripts/electron-runtime-cache.sh
+source "$SCRIPT_DIR/scripts/electron-runtime-cache.sh"
 DEFAULT_INSTALL_ROOT="$REPO_ROOT/staged-installs"
 INSTALL_DIR=""
 ELECTRON_VERSION="42.1.0"
@@ -17,14 +21,16 @@ DMG_URL="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
 ACTIVATE_SCRIPT="$SCRIPT_DIR/scripts/activate-install.sh"
 ENSURE_CODEX_CLI_SCRIPT="$SCRIPT_DIR/scripts/ensure-codex-cli.sh"
 PATCH_NATIVE_MODULE_SOURCES_SCRIPT="$SCRIPT_DIR/scripts/patch-native-module-sources.mjs"
+WRITE_LINUX_PATCH_STATE_SCRIPT="$SCRIPT_DIR/scripts/write-linux-patch-state.mjs"
+APP_ICON_SOURCE="$SCRIPT_DIR/assets/codex-app-icon.png"
 SEVENZIP_BIN="${CODEX_SEVENZIP:-7z}"
 LINUX_BUNDLED_PLUGIN_NAMES=("browser" "chrome" "latex")
-LINUX_LOCAL_PLUGIN_NAMES=("dolphin" "kitty")
+LINUX_LOCAL_PLUGIN_NAMES=("dolphin" "kitty" "kde-computer-use=computer-use")
 LINUX_LOCAL_PLUGIN_SOURCE_ROOT="$SCRIPT_DIR/plugins"
 LINUX_NODE_REPL_SOURCE="$SCRIPT_DIR/scripts/linux-node-repl.mjs"
 LINUX_BROWSER_RUNTIME_DIR="$SCRIPT_DIR/scripts/linux-browser-runtime"
 LINUX_CHROME_EXTENSION_HOST_SOURCE="$LINUX_BROWSER_RUNTIME_DIR/chrome-extension-host.mjs"
-REFRESH_DMG="${CODEX_REFRESH_DMG:-0}"
+REFRESH_DMG=0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -51,8 +57,8 @@ usage() {
 Usage: $0 [--refresh-dmg|--no-refresh-dmg] [/path/to/Codex.dmg]
 
 By default, an existing cached Codex.dmg is reused without checking or
-refreshing the upstream DMG. Use --refresh-dmg or CODEX_REFRESH_DMG=1 when
-the user explicitly wants to refresh the cached upstream DMG.
+refreshing the upstream DMG. Use --refresh-dmg only when the user explicitly
+wants to refresh the cached upstream DMG.
 EOF
 }
 
@@ -125,6 +131,7 @@ get_dmg() {
     local dmg_dest="$SCRIPT_DIR/Codex.dmg"
     local metadata_path="$SCRIPT_DIR/Codex.dmg.remote"
     local remote_headers="$WORK_DIR/codex-dmg.headers"
+    local downloaded_dmg="$WORK_DIR/Codex.dmg.download"
     local remote_etag=""
     local remote_last_modified=""
     local remote_length=""
@@ -134,7 +141,7 @@ get_dmg() {
 
     if [ -s "$dmg_dest" ] && [ "$REFRESH_DMG" != "1" ]; then
         info "Using cached DMG without upstream refresh: $dmg_dest ($(du -h "$dmg_dest" | cut -f1))"
-        info "Use --refresh-dmg or CODEX_REFRESH_DMG=1 only when the user explicitly requests a DMG refresh"
+        info "Use --refresh-dmg only when the user explicitly requests a DMG refresh"
         echo "$dmg_dest"
         return
     fi
@@ -185,23 +192,22 @@ get_dmg() {
     info "URL: $DMG_URL"
 
     if ! curl -L --progress-bar --max-time 600 --connect-timeout 30 \
-            -o "$dmg_dest" "$DMG_URL"; then
-        rm -f "$dmg_dest"
+            -o "$downloaded_dmg" "$DMG_URL"; then
+        rm -f "$downloaded_dmg"
         error "Download failed. Download manually and place as: $dmg_dest"
     fi
 
-    if [ ! -s "$dmg_dest" ]; then
-        rm -f "$dmg_dest"
+    if [ ! -s "$downloaded_dmg" ]; then
+        rm -f "$downloaded_dmg"
         error "Download produced empty file. Download manually and place as: $dmg_dest"
     fi
 
-    cat > "$metadata_path" <<EOF
-DMG_REMOTE_ETAG='${remote_etag//\'/\'\"\'\"\'}'
-DMG_REMOTE_LAST_MODIFIED='${remote_last_modified//\'/\'\"\'\"\'}'
-DMG_REMOTE_CONTENT_LENGTH='${remote_length//\'/\'\"\'\"\'}'
-EOF
+    commit_refreshed_dmg "$dmg_dest" "$metadata_path" "$downloaded_dmg" "$remote_etag" "$remote_last_modified" "$remote_length"
 
     info "Saved: $dmg_dest ($(du -h "$dmg_dest" | cut -f1))"
+    if [ -s "$(dmg_previous_path "$dmg_dest")" ]; then
+        info "Previous cached DMG retained: $(dmg_previous_path "$dmg_dest")"
+    fi
     echo "$dmg_dest"
 }
 
@@ -363,12 +369,19 @@ copy_bundled_plugins() {
         "${copied_plugins[@]}"
 
     local copied_local_plugins=()
-    local local_plugin_name
-    for local_plugin_name in "${LINUX_LOCAL_PLUGIN_NAMES[@]}"; do
-        local local_plugin_root="$LINUX_LOCAL_PLUGIN_SOURCE_ROOT/$local_plugin_name"
+    local local_plugin_spec
+    for local_plugin_spec in "${LINUX_LOCAL_PLUGIN_NAMES[@]}"; do
+        local local_plugin_name="${local_plugin_spec%%=*}"
+        local local_plugin_dir="$local_plugin_name"
+        if [[ "$local_plugin_spec" == *=* ]]; then
+            local_plugin_dir="${local_plugin_spec#*=}"
+        fi
+        local local_plugin_root="$LINUX_LOCAL_PLUGIN_SOURCE_ROOT/$local_plugin_dir"
         [ -d "$local_plugin_root" ] || error "Linux local plugin missing: $local_plugin_root"
         cp -r "$local_plugin_root" "$dest_root/plugins/"
-        copied_local_plugins+=("$local_plugin_name")
+        find "$dest_root/plugins/$local_plugin_dir" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+        find "$dest_root/plugins/$local_plugin_dir" -type f -name '*.pyc' -delete 2>/dev/null || true
+        copied_local_plugins+=("$local_plugin_name=$local_plugin_dir")
     done
 
     if [ ${#copied_local_plugins[@]} -gt 0 ]; then
@@ -384,20 +397,13 @@ copy_bundled_plugins() {
 download_electron() {
     info "Downloading Electron v${ELECTRON_VERSION} for Linux..."
 
-    local electron_arch
-    case "$ARCH" in
-        x86_64)  electron_arch="x64" ;;
-        aarch64) electron_arch="arm64" ;;
-        armv7l)  electron_arch="armv7l" ;;
-        *)       error "Unsupported architecture: $ARCH" ;;
-    esac
+    local electron_zip
+    electron_zip="$(ensure_electron_runtime_zip "$ELECTRON_VERSION" "$ARCH" "$WORK_DIR")"
+    info "Using Electron runtime zip: $electron_zip"
 
-    local url="https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-linux-${electron_arch}.zip"
-
-    curl -L --progress-bar -o "$WORK_DIR/electron.zip" "$url"
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
-    unzip -qo "$WORK_DIR/electron.zip"
+    unzip -qo "$electron_zip"
 
     if [ -f "$INSTALL_DIR/electron" ]; then
         mv "$INSTALL_DIR/electron" "$INSTALL_DIR/Codex"
@@ -411,12 +417,9 @@ download_electron() {
 
 # ---- Export app icon ----
 export_app_icon() {
-    local app_dir="$1"
-    local upstream_icon="$app_dir/Contents/Resources/codexTemplate@2x.png"
-
-    [ -f "$upstream_icon" ] || error "Expected upstream icon not found: $upstream_icon"
-    cp "$upstream_icon" "$INSTALL_DIR/icon.png"
-    info "App icon exported from upstream resource: codexTemplate@2x.png"
+    [ -f "$APP_ICON_SOURCE" ] || error "Expected installer app icon not found: $APP_ICON_SOURCE"
+    cp "$APP_ICON_SOURCE" "$INSTALL_DIR/icon.png"
+    info "App icon exported from installer asset: assets/codex-app-icon.png"
 }
 
 # ---- Install app.asar ----
@@ -434,8 +437,8 @@ install_app() {
 }
 
 # ---- Verify packaged Linux patches and write patch state ----
-ensure_packaged_linux_patches() {
-    node "$SCRIPT_DIR/scripts/ensure-linux-patches.mjs" "$INSTALL_DIR"
+write_packaged_linux_patch_state() {
+    node "$WRITE_LINUX_PATCH_STATE_SCRIPT" "$INSTALL_DIR"
     info "Linux patch state written"
 }
 
@@ -544,9 +547,9 @@ main() {
     patch_asar "$app_dir"
     copy_bundled_plugins "$app_dir"
     download_electron
-    export_app_icon "$app_dir"
+    export_app_icon
     install_app
-    ensure_packaged_linux_patches
+    write_packaged_linux_patch_state
     create_start_script
     echo ""                                             >&2
     echo "============================================" >&2

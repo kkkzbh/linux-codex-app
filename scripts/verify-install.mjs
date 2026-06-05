@@ -13,6 +13,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { createLinuxPatchContext } from "./linux-runtime/bundle-context.mjs";
 import { linuxPatchFeatures, verifyLinuxPatchSource } from "./linux-runtime/features/index.mjs";
 import { START_SCRIPT_MARKERS } from "./linux-runtime/markers.mjs";
@@ -23,6 +25,8 @@ import {
   isLinuxPatchStateCurrent,
   loadLinuxPatchState,
 } from "./linux-runtime/state.mjs";
+
+const EXPECTED_APP_ICON_SHA256 = "1c926e380bfe6a50f40648dd9bc5de88da7271546491adf99ec72172e17df6a0";
 
 function usage() {
   return `Usage: verify-install.mjs <install-dir>
@@ -50,8 +54,33 @@ function requireExecutable(pathValue) {
   }
 }
 
+function sha256File(pathValue) {
+  return createHash("sha256").update(readFileSync(pathValue)).digest("hex");
+}
+
+function verifyAppIcon(iconPath) {
+  requirePath(iconPath, "file");
+
+  const data = readFileSync(iconPath);
+  const pngSignature = "89504e470d0a1a0a";
+  if (data.subarray(0, 8).toString("hex") !== pngSignature) {
+    fail(`Expected app icon to be a PNG: ${iconPath}`);
+  }
+
+  const width = data.readUInt32BE(16);
+  const height = data.readUInt32BE(20);
+  if (width !== 544 || height !== 544) {
+    fail(`Expected app icon to be 544x544, got ${width}x${height}: ${iconPath}`);
+  }
+
+  const sha256 = sha256File(iconPath);
+  if (sha256 !== EXPECTED_APP_ICON_SHA256) {
+    fail(`Expected installer app icon sha256 ${EXPECTED_APP_ICON_SHA256}, got ${sha256}: ${iconPath}`);
+  }
+}
+
 function expectedLocalPluginNames() {
-  const raw = process.env.CODEX_VERIFY_LOCAL_PLUGINS ?? process.env.CODEX_LOCAL_PLUGIN_NAMES ?? "dolphin,kitty";
+  const raw = process.env.CODEX_VERIFY_LOCAL_PLUGINS ?? process.env.CODEX_LOCAL_PLUGIN_NAMES ?? "dolphin,kitty,kde-computer-use";
   return raw
     .split(/[\s,]+/)
     .map((name) => name.trim())
@@ -151,91 +180,8 @@ function verifyBundle(resourcesDir, appAsarPath) {
     const context = createLinuxPatchContext(path.join(tempDir, "app"));
     const bundleSources = context.readBundleSources();
     verifyLinuxPatchSource(bundleSources, context);
-    verifyRemoteControlBackendSource(bundleSources.main);
-    verifyRemoteControlDeviceKeySource(bundleSources.main);
-    verifyRemoteControlVisibilitySource(bundleSources);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
-  }
-}
-
-function verifyRemoteControlDeviceKeySource(source) {
-  for (const marker of [
-    "function codexLinuxDeviceKeyStorePaths",
-    "function codexLinuxDeviceKeyStorePath",
-    "function codexLinuxRemoteControlDeviceKeyBackend",
-    "process.env.CODEX_HOME",
-    "'.codex'",
-    "'remote-control','device-keys','keys.json",
-    "'.local','share'),'codex-app','device-keys','keys.json",
-    "codexLinuxQuarantineDeviceKeyStore",
-    "renameSync(o,i)",
-    "createPrivateKey(r.privateKeyPem)",
-    "generateKeyPairSync('ec',{namedCurve:'prime256v1'}",
-    "protectionClass:'os_protected_nonextractable'",
-    "e.sign('sha256',n,i)",
-    "process.platform==='linux'",
-  ]) {
-    if (!source.includes(marker)) {
-      fail(`Expected Linux remote-control device-key marker in Electron main bundle: ${marker}`);
-    }
-  }
-
-  if (source.includes("Remote control device keys are only available on macOS")) {
-    fail("Electron main bundle still contains the macOS-only remote-control device-key gate");
-  }
-}
-
-function verifyRemoteControlBackendSource(source) {
-  for (const marker of [
-    "i===`linux`?{...e,control:!0",
-    "CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE",
-    "browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0",
-  ]) {
-    if (!source.includes(marker)) {
-      fail(`Expected Linux remote-control backend marker in Electron main bundle: ${marker}`);
-    }
-  }
-
-  if (
-    source.includes(
-      "i===`linux`&&r.CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE===`1`?{...e,browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0}",
-    )
-  ) {
-    fail("Electron main bundle still leaves Linux remote-control desktop features disabled");
-  }
-
-  if (source.includes("i===`linux`?{...e,control:!0,deviceAttestation:!0")) {
-    fail("Electron main bundle should not advertise Linux DeviceCheck attestation availability");
-  }
-}
-
-function verifyRemoteControlVisibilitySource(bundleSources) {
-  if (
-    !/function [$A-Z_a-z][$\w]*\(\{remoteControlConnectionsState:[$A-Z_a-z][$\w]*,slingshotEnabled:[$A-Z_a-z][$\w]*\}\)\{return!0\}/.test(
-      bundleSources.webviewRemoteControlConnectionsVisibility,
-    )
-  ) {
-    fail("Expected webview remote-control connections visibility gate to be open");
-  }
-
-  if (!/function [$A-Z_a-z][$\w]*\(\)\{return!0\}/.test(bundleSources.webviewRemoteConnectionVisibility)) {
-    fail("Expected webview remote connections feature gate to be open");
-  }
-
-  if (
-    bundleSources.webviewRemoteControlConnectionsVisibility.includes(
-      "return t&&(e?.available??!0)&&e?.accessRequired!==!0",
-    )
-  ) {
-    fail("Webview remote-control connections visibility gate still depends on remote state");
-  }
-
-  if (
-    bundleSources.webviewRemoteConnectionVisibility.includes("features.remote_connections") ||
-    bundleSources.webviewRemoteConnectionVisibility.includes("c(`4114442250`)")
-  ) {
-    fail("Webview remote connections feature gate still depends on config or Statsig");
   }
 }
 
@@ -291,6 +237,17 @@ function verifyBundledPlugins(resourcesDir) {
   const kittyLib = path.join(kittyRoot, "scripts", "kitty-lib.mjs");
   const kittySkill = path.join(kittyRoot, "skills", "kitty", "SKILL.md");
   const kittyIcon = path.join(kittyRoot, "assets", "kitty.png");
+  const computerUseRoot = path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "computer-use");
+  const computerUsePluginJson = path.join(computerUseRoot, ".codex-plugin", "plugin.json");
+  const computerUseMcpJson = path.join(computerUseRoot, ".mcp.json");
+  const computerUseMcpServer = path.join(computerUseRoot, "scripts", "computer-use-mcp.mjs");
+  const computerUseLib = path.join(computerUseRoot, "scripts", "computer-use-lib.mjs");
+  const computerUseBroker = path.join(computerUseRoot, "scripts", "computer-use-broker.py");
+  const computerUseSkill = path.join(computerUseRoot, "skills", "computer-use", "SKILL.md");
+  const computerUseIcon = path.join(computerUseRoot, "assets", "computer-use.png");
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const computerUseSmoke = path.join(scriptDir, "smoke-computer-use-plugin.mjs");
+  const computerUseAccess = path.join(scriptDir, "install-computer-use-access.sh");
   const nodeReplPath = path.join(resourcesDir, "node_repl");
 
   requirePath(marketplacePath, "OpenAI bundled marketplace");
@@ -323,6 +280,18 @@ function verifyBundledPlugins(resourcesDir) {
     requirePath(kittyLib, "Kitty MCP library");
     requirePath(kittySkill, "Kitty skill");
     requirePath(kittyIcon, "Kitty plugin icon");
+  }
+
+  if (expectedLocalPlugins.has("kde-computer-use")) {
+    requirePath(computerUsePluginJson, "Computer Use plugin manifest");
+    requirePath(computerUseMcpJson, "Computer Use MCP manifest");
+    requireExecutable(computerUseMcpServer);
+    requirePath(computerUseLib, "Computer Use MCP library");
+    requireExecutable(computerUseBroker);
+    requirePath(computerUseSkill, "Computer Use skill");
+    requirePath(computerUseIcon, "Computer Use plugin icon");
+    requireExecutable(computerUseSmoke);
+    requireExecutable(computerUseAccess);
   }
 
   requireExecutable(nodeReplPath);
@@ -420,7 +389,7 @@ function verifyBundledPlugins(resourcesDir) {
     }
   }
 
-  for (const localPluginName of ["dolphin", "kitty"]) {
+  for (const localPluginName of ["dolphin", "kitty", "kde-computer-use", "computer-use"]) {
     if (!expectedLocalPlugins.has(localPluginName) && pluginNames.has(localPluginName)) {
       fail(`Optional plugin should not be bundled unless explicitly requested: ${localPluginName}`);
     }
@@ -445,12 +414,15 @@ function verifyBundledPlugins(resourcesDir) {
 
     const dolphinMcp = JSON.parse(readFileSync(dolphinMcpJson, "utf8"));
     if (dolphinMcp?.mcp_servers) {
-      fail(`Expected Dolphin MCP manifest to use the runtime-supported mcpServers shape: ${dolphinMcpJson}`);
+      fail(`Expected Dolphin MCP manifest to use the documented direct server-map shape: ${dolphinMcpJson}`);
     }
-    if (dolphinMcp?.mcpServers?.dolphin?.args?.[0] !== "./scripts/dolphin-mcp.mjs") {
+    if (dolphinMcp?.mcpServers) {
+      fail(`Expected Dolphin MCP manifest not to use legacy mcpServers wrapping: ${dolphinMcpJson}`);
+    }
+    if (dolphinMcp?.dolphin?.args?.[0] !== "./scripts/dolphin-mcp.mjs") {
       fail(`Expected Dolphin MCP manifest to launch scripts/dolphin-mcp.mjs: ${dolphinMcpJson}`);
     }
-    if (dolphinMcp?.mcpServers?.dolphin?.cwd !== ".") {
+    if (dolphinMcp?.dolphin?.cwd !== ".") {
       fail(`Expected Dolphin MCP manifest to declare plugin-root cwd: ${dolphinMcpJson}`);
     }
   }
@@ -474,18 +446,85 @@ function verifyBundledPlugins(resourcesDir) {
 
     const kittyMcp = JSON.parse(readFileSync(kittyMcpJson, "utf8"));
     if (kittyMcp?.mcp_servers) {
-      fail(`Expected Kitty MCP manifest to use the runtime-supported mcpServers shape: ${kittyMcpJson}`);
+      fail(`Expected Kitty MCP manifest to use the documented direct server-map shape: ${kittyMcpJson}`);
     }
-    if (kittyMcp?.mcpServers?.kitty?.args?.[0] !== "./scripts/kitty-mcp.mjs") {
+    if (kittyMcp?.mcpServers) {
+      fail(`Expected Kitty MCP manifest not to use legacy mcpServers wrapping: ${kittyMcpJson}`);
+    }
+    if (kittyMcp?.kitty?.args?.[0] !== "./scripts/kitty-mcp.mjs") {
       fail(`Expected Kitty MCP manifest to launch scripts/kitty-mcp.mjs: ${kittyMcpJson}`);
     }
-    if (kittyMcp?.mcpServers?.kitty?.cwd !== ".") {
+    if (kittyMcp?.kitty?.cwd !== ".") {
       fail(`Expected Kitty MCP manifest to declare plugin-root cwd: ${kittyMcpJson}`);
     }
   }
 
-  if (pluginNames.has("computer-use")) {
-    fail(`Linux bundled marketplace should not advertise macOS-only computer-use: ${marketplacePath}`);
+  if (expectedLocalPlugins.has("kde-computer-use")) {
+    const computerUseMarketplaceEntry = marketplace.plugins.find((plugin) => plugin.name === "kde-computer-use");
+    if (computerUseMarketplaceEntry?.source?.path !== "./plugins/computer-use") {
+      fail(`Expected Computer Use marketplace source to point at ./plugins/computer-use: ${marketplacePath}`);
+    }
+    if (computerUseMarketplaceEntry?.policy?.installation !== "AVAILABLE") {
+      fail(`Expected Computer Use marketplace installation policy to be AVAILABLE: ${marketplacePath}`);
+    }
+
+    const computerUseManifest = JSON.parse(readFileSync(computerUsePluginJson, "utf8"));
+    if (computerUseManifest?.name !== "kde-computer-use") {
+      fail(`Expected Computer Use plugin identity to avoid the upstream computer-use reserved name: ${computerUsePluginJson}`);
+    }
+    if (computerUseManifest?.mcpServers !== "./.mcp.json") {
+      fail(`Expected Computer Use plugin manifest to declare .mcp.json: ${computerUsePluginJson}`);
+    }
+    if (computerUseManifest?.interface?.composerIcon !== "./assets/computer-use.png") {
+      fail(`Expected Computer Use plugin to use the packaged icon: ${computerUsePluginJson}`);
+    }
+    if (!/KDE Wayland/.test(computerUseManifest?.description ?? "")) {
+      fail(`Expected Computer Use plugin to describe KDE Wayland scope: ${computerUsePluginJson}`);
+    }
+
+    const computerUseMcp = JSON.parse(readFileSync(computerUseMcpJson, "utf8"));
+    if (computerUseMcp?.mcp_servers) {
+      fail(`Expected Computer Use MCP manifest to use the documented direct server-map shape: ${computerUseMcpJson}`);
+    }
+    if (computerUseMcp?.mcpServers) {
+      fail(`Expected Computer Use MCP manifest not to use legacy mcpServers wrapping: ${computerUseMcpJson}`);
+    }
+    if (computerUseMcp?.["computer-use"]?.args?.[0] !== "./scripts/computer-use-mcp.mjs") {
+      fail(`Expected Computer Use MCP manifest to launch scripts/computer-use-mcp.mjs: ${computerUseMcpJson}`);
+    }
+    if (computerUseMcp?.["computer-use"]?.cwd !== ".") {
+      fail(`Expected Computer Use MCP manifest to declare plugin-root cwd: ${computerUseMcpJson}`);
+    }
+
+    const brokerSource = readFileSync(computerUseBroker, "utf8");
+    for (const marker of [
+      "org.freedesktop.portal.RemoteDesktop",
+      "org.freedesktop.portal.ScreenCast",
+      "org.freedesktop.host.portal.Registry",
+      "org.kde.kwin.Scripting",
+      "org.kde.KWin.ScreenShot2",
+      "org.kde.StatusNotifierWatcher",
+      "org.kde.StatusNotifierItem",
+      "CODEX_COMPUTER_USE_PORTAL_APP_ID",
+      "list_desktops",
+      "computer_list_tray_items",
+      "computer_activate_tray_item",
+      "computer_release_desktops",
+      "captureDesktopSnapshot",
+      "restoreDesktopSnapshot",
+      "ensure_portal_input",
+      "NotifyPointerMotionAbsolute",
+      "NotifyKeyboardKeycode",
+      "NotifyKeyboardKeysym",
+      "pipewiresrc",
+    ]) {
+      if (!brokerSource.includes(marker)) {
+        fail(`Expected Computer Use broker marker ${marker}: ${computerUseBroker}`);
+      }
+    }
+    if (/ydotool|uinput/i.test(brokerSource)) {
+      fail(`Computer Use broker must not expose direct input helper paths: ${computerUseBroker}`);
+    }
   }
 
   verifyChromeNativeHostManifestCheck(chromeRoot, chromeManifestCheck, chromeExtensionIdConfig, chromeInstallManifest, chromeHostPath);
@@ -598,7 +637,7 @@ function main() {
   requirePath(installDir, "directory");
   requireExecutable(startScriptPath);
   requireExecutable(codexBinPath);
-  requirePath(iconPath, "file");
+  verifyAppIcon(iconPath);
   requirePath(versionPath, "file");
   requirePath(appAsarPath, "file");
 

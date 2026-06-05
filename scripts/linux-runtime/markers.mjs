@@ -27,41 +27,19 @@ export const FEATURE_MARKERS = {
       "detect:()=>fm(`",
     ],
   },
-  "directive-strip": {
-    requiredMarkers: {
-      webviewFollowUp: [
-        /var [$A-Z_a-z][$\w]*=\/\^::\(\?:inbox-item\|archive-thread\|code-comment\|git-stage\|git-commit\|git-create-branch\|git-push\|git-create-pr\|pr-auto-fix-progress\)\(\?=\$\|\[\\s\\\[\{\]\)\.\*\$\/gm;/,
-      ],
-    },
-    forbiddenMarkers: {
-      webviewFollowUp: [
-        /var [$A-Z_a-z][$\w]*=\/\^::\[a-zA-Z0-9-\]\+\.\*\$\/gm;/,
-      ],
-    },
-  },
-  "conversation-model-selector": {
-    requiredMarkers: [
-      /function [$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*=null\)\{let .*?,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*==null\?null:[$A-Z_a-z][$\w]*\.cwd,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*\(\{hostId:[$A-Z_a-z][$\w]*,cwd:[$A-Z_a-z][$\w]*,isHostRegistered:[$A-Z_a-z][$\w]*\}\)/,
-    ],
-    forbiddenMarkers: [
-      /function [$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*=null\)\{let .*?,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*\.cwd,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*\(\{hostId:[$A-Z_a-z][$\w]*,cwd:[$A-Z_a-z][$\w]*,isHostRegistered:[$A-Z_a-z][$\w]*\}\)/,
-    ],
-  },
   "markdown-local-media": {
     requiredMarkers: {
       webviewMarkdown: [
         "function codexLinuxNormalizeMediaPath(e)",
         "function codexLinuxResolveMarkdownMediaPath(e,t)",
-        "function codexLinuxNormalizeMarkdownRemoteMediaUrl(e)",
-        "function codexLinuxMarkdownMimeType(e)",
+        "function codexLinuxMarkdownImageMimeType(e)",
         "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,cwd:codexLinuxMarkdownCwd,mediaPresentation:s,rootRef:c,src:l,title:u}=e",
         "S=codexLinuxResolveMarkdownMediaPath(x,codexLinuxMarkdownCwd)",
-        "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
-        "T=Yt(S??ke??x)",
-        "N=O?(A?me(S):ke):null",
-        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):ke??x)",
-        "B=!O&&(A||ke!=null)",
-        "ne=O&&C&&N==null",
+        "T=Yt(S??x)",
+        "O=!1,k=!1,A=S!=null",
+        "N=null,P=A",
+        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):x)",
+        "B=A,ne=!1",
         "params:{path:P?S??x:``,hostId:o}",
         "(0,Z.jsx)(mn,{...e,animateEnter:t,cwd:n??null,hostId:a,mediaPresentation:o,rootRef:s})",
       ],
@@ -69,116 +47,42 @@ export const FEATURE_MARKERS = {
         "function codexLinuxMarkdownPreviewDir(e)",
         "(0,Z.jsx)(de,{enableMetadataPreview:!0,markdown:v,cwd:S})",
       ],
-      webviewHtml: [
-        "img-src &#39;self&#39; app: blob: data: http: https:;",
-        "media-src &#39;self&#39; app: blob: data: http: https:;",
-      ],
+      webviewHtml: [],
     },
     forbiddenMarkers: {
       webviewMarkdown: [
+        "function codexLinuxNormalizeMarkdownRemoteMediaUrl(e)",
+        "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
+        "T=Yt(S??ke??x)",
+        "N=O?(A?me(S):ke):null",
+        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):ke??x)",
+        "B=!O&&(A||ke!=null)",
+        "ne=O&&C&&N==null",
         "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,mediaPresentation:s,rootRef:c,src:l,title:u}=e",
         "x=l??``,S=d(x),C=x.length>0,w=Zt(x),T;t[0]===x?T=t[1]:(T=Yt(x),t[0]=x,t[1]=T)",
         "M=w==null&&C&&!A&&en(x)&&j.safeUrl==null&&!j.isPending",
-        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):x)",
         "B=A&&!O,ne=A&&O&&N==null",
         "(0,Z.jsx)(mn,{...e,animateEnter:t,hostId:a,mediaPresentation:o,rootRef:s})",
       ],
       webviewDiffAnnotations: [
         "(0,Z.jsx)(de,{enableMetadataPreview:!0,markdown:v})",
       ],
-      webviewHtml: [
-        "img-src &#39;self&#39; app: blob: data: https:;",
-        "media-src &#39;self&#39; app: blob: data:;",
-      ],
+      webviewHtml: [],
     },
   },
-  "conversation-local-images": {
+  "generated-output-artifacts": {
     requiredMarkers: {
-      webviewFollowUp: [
-        "case`imageGeneration`:{let e=typeof n.src==`string`?n.src.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:n.status});break}",
-        "case`imageView`:{let e=typeof n.path==`string`?Cx(n.path):null,r=e??(typeof n.path==`string`?n.path.trim():``);if(r.length===0)break;let i=e==null?r:`app://fs/@fs${encodeURI(e).replaceAll(`#`,`%23`).replaceAll(`?`,`%3F`)}?codexImageViewId=${encodeURIComponent(String(n.id??``))}`;a.push({type:`generated-image`,id:n.id,src:i,status:`completed`});break}",
-        "case`imageView`:return typeof e.path==`string`&&Cx(e.path)!=null;",
-      ],
-      webviewUsePlugins: [
-        "function C(e){if(typeof e!==`string`)return null;let t=e.trim();",
+      webviewLocalConversationThread: [
+        "function codexLinuxIsGeneratedImageTempArtifactPath(e)",
+        "function codexLinuxResolveGeneratedImageArtifactPath(e,t,n)",
+        "conversationId:e,projectlessOutputDirectory:t(De,e)",
+        "let t=codexLinuxResolveGeneratedImageArtifactPath(e.path,l)",
       ],
     },
     forbiddenMarkers: {
-      webviewFollowUp: [
-        "case`imageView`:{let e=Cx(n.path),r=e==null?null:sx(e,`Image`);if(r==null)break;let i=t===f?l:null;if(p!=null){p.content=`${p.content}\\n${r}`,p.sentAtMs=i;break}p={type:`assistant-message`,content:r,sentAtMs:i,completed:!0,phase:null,renderPlaceholderWhileStreaming:!1,structuredOutput:void 0},a.push(p);break}",
-        "case`imageView`:{let e=j_(n.path)??n.path.trim();if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:`completed`});break}",
-        "case`imageView`:{let e=typeof n.path==`string`?Uy(n.path)??n.path.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:`completed`});break}",
-        "case`imageGeneration`:a.push({type:`generated-image`,id:n.id,src:n.src,status:n.status});break;",
-        "case`imageView`:return Cx(e.path)!=null;",
-      ],
-      webviewUsePlugins: [
-        "function C(e){if(e==null)return null;let t=e.trim();",
-      ],
-    },
-  },
-  "local-image-cache-refresh": {
-    requiredMarkers: {
-      webviewMarkdown: [
-        /queryConfig:\{enabled:[$A-Z_a-z][$\w]*,gcTime:1\/0,staleTime:0,refetchOnMount:`always`\}/,
-      ],
-      webviewUsePlugins: [
-        /queryKey:[$A-Z_a-z][$\w]*\(`read-file-binary`,[$A-Z_a-z][$\w]*\),retry:!1,gcTime:1\/0,staleTime:0/,
-      ],
-    },
-    forbiddenMarkers: {
-      webviewMarkdown: [
-        /queryConfig:\{enabled:[$A-Z_a-z][$\w]*,gcTime:1\/0,staleTime:1\/0\}/,
-      ],
-      webviewUsePlugins: [
-        /queryKey:[$A-Z_a-z][$\w]*\(`read-file-binary`,[$A-Z_a-z][$\w]*\),retry:!1,gcTime:1\/0,staleTime:[$A-Z_a-z][$\w]*\.INFINITE/,
-      ],
-    },
-  },
-  preferences: {
-    requiredMarkers: [
-      /"set-preferred-app":async\(\{target:[$A-Z_a-z][$\w]*,cwd:codexLinuxPreferredTargetCwd\}\)=>\([$A-Z_a-z][$\w]*\(this\.getSettingsStore\(\),codexLinuxPreferredTargetCwd\?\?null,[$A-Z_a-z][$\w]*\),\{success:!0\}\)/,
-    ],
-    forbiddenMarkers: [],
-  },
-  "remote-control-device-key": {
-    requiredMarkers: [
-      "function codexLinuxDeviceKeyStorePaths",
-      "function codexLinuxDeviceKeyStorePath",
-      "function codexLinuxRemoteControlDeviceKeyBackend",
-      "process.env.CODEX_HOME",
-      "'.codex'",
-      "'remote-control','device-keys','keys.json",
-      "'.local','share'),'codex-app','device-keys','keys.json",
-      "codexLinuxQuarantineDeviceKeyStore",
-      "renameSync(o,i)",
-      "createPrivateKey(r.privateKeyPem)",
-      "generateKeyPairSync('ec',{namedCurve:'prime256v1'}",
-      "protectionClass:'os_protected_nonextractable'",
-      "algorithm:'ecdsa_p256_sha256'",
-      "e.sign('sha256',n,i)",
-      "process.platform==='linux'",
-      "createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`)",
-    ],
-    forbiddenMarkers: [
-      "Remote control device keys are only available on macOS",
-    ],
-  },
-  "remote-control-visibility": {
-    requiredMarkers: {
-      webviewRemoteControlConnectionsVisibility: [
-        /function [$A-Z_a-z][$\w]*\(\{remoteControlConnectionsState:[$A-Z_a-z][$\w]*,slingshotEnabled:[$A-Z_a-z][$\w]*\}\)\{return!0\}/,
-      ],
-      webviewRemoteConnectionVisibility: [
-        /function [$A-Z_a-z][$\w]*\(\)\{return!0\}/,
-      ],
-    },
-    forbiddenMarkers: {
-      webviewRemoteControlConnectionsVisibility: [
-        "return t&&(e?.available??!0)&&e?.accessRequired!==!0",
-      ],
-      webviewRemoteConnectionVisibility: [
-        "features.remote_connections",
-        "c(`4114442250`)",
+      webviewLocalConversationThread: [
+        "function dp(e,{projectlessOutputDirectory:t=null}={}){let n=[];for(let r=e.length-1;r>=0;--r)n.push(pp(e[r],t));return fp(n)}",
+        "for(let e of i.items)e?.type===`imageGeneration`&&e.src!=null&&Le(e.src)&&st({cwd:t,projectlessOutputDirectory:n,resourcePath:e.src})&&c({type:`file`,path:t==null?e.src:te(t,e.src)})",
       ],
     },
   },
@@ -189,17 +93,6 @@ export const FEATURE_MARKERS = {
     ],
     forbiddenMarkers: [
       "function xe(e,{buildFlavor:n=t.O.resolve(),env:r=f.default.env,platform:i=f.default.platform}={}){let a=i===`win32`&&r.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...e,computerUse:!0,computerUseNodeRepl:!0}:e,o=n===t.O.Dev?Se(r):null;return o==null?a:{...a,...o}}",
-    ],
-  },
-  "remote-control-backend": {
-    requiredMarkers: [
-      /[$A-Z_a-z][$\w]*===`linux`\?\{\.\.\.[$A-Z_a-z][$\w]*,control:!0/,
-      "CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE",
-      "browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0",
-    ],
-    forbiddenMarkers: [
-      /[$A-Z_a-z][$\w]*===`linux`&&[$A-Z_a-z][$\w]*\.CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE===`1`\?\{\.\.\.[$A-Z_a-z][$\w]*,browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0\}/,
-      /[$A-Z_a-z][$\w]*===`linux`\?\{\.\.\.[$A-Z_a-z][$\w]*,control:!0,deviceAttestation:!0/,
     ],
   },
   "browser-backend-registry": {
@@ -273,47 +166,62 @@ export const FEATURE_MARKERS = {
       "function da({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,i.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,i.join)(t??(0,i.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
     ],
   },
-  "plugin-mcp-reload": {
-    requiredMarkers: {
-      webviewPluginAvailability: [
-        "function codexLinuxPluginHasMcp",
-        "function codexLinuxRestartAppServerForPluginMcp",
-        "codexLinuxRestartAppServerForPluginMcp(f,t,D)",
-        "codex-app-server-restart",
-      ],
-    },
-    forbiddenMarkers: {
-      webviewPluginAvailability: [
-        "let _=await qe({authPolicy:h.authPolicy,codexHome:c,hostId:t,plugin:f,queryClient:a,windowType:`electron`});if(h.authPolicy===`ON_USE`",
-      ],
-    },
-  },
   "native-titlebar": {
     mainRequiredMarkers: [
       "codex_desktop:linux-titlebar-config",
       "codex_desktop:linux-titlebar-action",
+      "codex_desktop:linux-titlebar-debug",
       "linuxTitlebarConfigChannel",
       "linuxTitlebarActionChannel",
+      "linuxTitlebarDebugChannel",
+      "CODEX_LINUX_TITLEBAR_DEBUG",
+      "linux-titlebar-debug.jsonl",
       "__codexCustomTitlebar",
-      "frame:!1,hasShadow:!0",
+      "frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`",
     ],
     preloadRequiredMarkers: [
       "codex_desktop:linux-titlebar-config",
       "codex_desktop:linux-titlebar-action",
+      "codex_desktop:linux-titlebar-debug",
       "linuxTitlebarConfigChannel",
       "linuxTitlebarActionChannel",
+      "linuxTitlebarDebugChannel",
       "codex-linux-drag-style",
       "data-codex-linux-drag-root",
+      "codex-linux-header-tint-mask",
       "codex-linux-window-controls",
       "codexLinuxIpcRenderer",
       "codexLinuxIpcRenderer.invoke(linuxTitlebarConfigChannel)",
       "codexLinuxIpcRenderer.invoke(linuxTitlebarActionChannel",
+      "CODEX_LINUX_TITLEBAR_DEBUG",
       "positionLinuxWindowControls",
+      "resetLinuxWindowControlsPosition",
       "isLinuxImagePreviewOpen",
+      "isLinuxSettingsSurface",
       "syncLinuxWindowControlsVisibility",
+      "codexLinuxWindowControlsHidden",
+      "data-codex-linux-window-controls-hidden",
+      "syncLinuxHeaderTintMask",
+      "getLinuxSidebarVisualRight",
+      "getLinuxSidebarPanelRight",
+      "syncLinuxSidebarTopbar",
+      "group/windows-top-bar",
+      "codex-linux-sidebar-top-surface",
+      "--codex-linux-sidebar-top-surface-width",
+      'group/windows-top-bar"]{width:var(--codex-linux-sidebar-top-surface-width)!important;max-width:var(--codex-linux-sidebar-top-surface-width)!important;min-width:0!important;overflow:hidden!important;background:transparent!important;background-color:transparent!important;box-shadow:none!important;}',
+      "codexLinuxHeaderTintMask",
+      "codexLinuxSidebarHeaderClip",
+      'setProperty("clip-path","inset(0 0 0 "+i+"px)","important")',
+      "header-shell-slot",
+      "app-shell-left-panel .app-header-tint{background:transparent!important",
+      "linuxPointDebug",
+      "pointSamples",
+      "sidebarHeaders",
+      "ResizeObserver",
+      'getComputedStyle(e,":after")',
+      "background-color:transparent!important",
       '[role="dialog"][aria-label="Image preview"]',
       '[data-testid="image-preview-dismiss-area"]',
-      'data-codex-linux-image-preview-open',
       'aria-hidden","true',
       "inert",
       'padding-right","96px',
@@ -322,8 +230,24 @@ export const FEATURE_MARKERS = {
       'button:active',
       '[["minimize","Minimize"],["maximize","Maximize"],["close","Close"]]',
     ],
-    mainForbiddenMarkers: [],
-    preloadForbiddenMarkers: [],
+    mainForbiddenMarkers: [
+      "n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:V1()}:{frame:!1,hasShadow:!0};",
+    ],
+    preloadForbiddenMarkers: [
+      '[class~="group/windows-top-bar"]>*{visibility:hidden!important;opacity:0!important;}',
+      "data-codex-linux-image-preview-open",
+      "z-index:35;background:var(--color-token-editor-background)!important",
+      '[data-codex-window-type="electron"][data-codex-os="linux"] .app-shell-left-panel{position:relative;z-index:35',
+      "#codex-linux-header-tint-mask{position:fixed;pointer-events:none;z-index:29;background:var(--codex-titlebar-tint,transparent);-webkit-app-region:drag;}",
+      "--codex-linux-sidebar-surface",
+      "color-mix(in srgb, var(--color-token-editor-background)",
+      "syncLinuxLeftPanelTopInset",
+      "--codex-linux-left-panel-padding-top",
+      "background:var(--codex-linux-sidebar-surface)!important",
+    ],
+    webviewAppShellForbiddenMarkers: [
+      "var(--codex-linux-left-panel-padding-top,var(--height-toolbar))",
+    ],
   },
   "settings-sidebar-surface": {
     requiredMarkers: {
@@ -367,17 +291,47 @@ export const FEATURE_MARKERS = {
       ],
     },
   },
-  "working-sessions-status": {
-    requiredMarkers: [
-      "codexLinuxWorkingSessionsStatusPath",
-      "codexLinuxWriteWorkingSessionsStatus",
-      "CODEX_WORKING_SESSIONS_STATUS_PATH",
-      "working-sessions.json",
-      /case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:codexLinuxWriteWorkingSessionsStatus\([$A-Z_a-z][$\w]*\);break;/,
-      "codexLinuxWriteWorkingSessionsStatus({trayMenuThreads:{runningThreads:[]}},!1)",
-    ],
-    forbiddenMarkers: [],
-  },
+};
+
+export const RETIRED_LINUX_PATCH_MARKERS = {
+  main: [
+    "codexLinuxPreferredTargetCwd",
+    /"set-preferred-app":async\(\{target:[$A-Z_a-z][$\w]*,cwd:codexLinuxPreferredTargetCwd\}\)=>\([$A-Z_a-z][$\w]*\(this\.getSettingsStore\(\),codexLinuxPreferredTargetCwd\?\?null,[$A-Z_a-z][$\w]*\),\{success:!0\}\)/,
+    "codexLinuxWorkingSessionsStatusPath",
+    "codexLinuxWriteWorkingSessionsStatus",
+    "CODEX_WORKING_SESSIONS_STATUS_PATH",
+    "working-sessions.json",
+    /case`view-focused`:case`quit-app`:case`tray-menu-threads-changed`:codexLinuxWriteWorkingSessionsStatus\([$A-Z_a-z][$\w]*\);break;/,
+    "codexLinuxWriteWorkingSessionsStatus({trayMenuThreads:{runningThreads:[]}},!1)",
+  ],
+  webviewFollowUp: [
+    /var [$A-Z_a-z][$\w]*=\/\^::\(\?:inbox-item\|archive-thread\|code-comment\|git-stage\|git-commit\|git-create-branch\|git-push\|git-create-pr\|pr-auto-fix-progress\)\(\?=\$\|\[\\s\\\[\{\]\)\.\*\$\/gm;/,
+    "case`imageGeneration`:{let e=typeof n.src==`string`?n.src.trim():``;if(e.length===0)break;a.push({type:`generated-image`,id:n.id,src:e,status:n.status});break}",
+    "codexImageViewId",
+    "app://fs/@fs${encodeURI(e).replaceAll",
+    /case`imageView`:return typeof [$A-Z_a-z][$\w]*\.path==`string`&&[$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*\.path\)!=null;/,
+  ],
+  webviewHtml: [
+    "img-src &#39;self&#39; app: blob: data: http: https:;",
+    "media-src &#39;self&#39; app: blob: data: http: https:;",
+  ],
+  webviewMarkdown: [
+    "function codexLinuxNormalizeMarkdownRemoteMediaUrl(e)",
+    "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
+    /queryConfig:\{enabled:[$A-Z_a-z][$\w]*,gcTime:1\/0,staleTime:0,refetchOnMount:`always`\}/,
+  ],
+  webviewUsePlugins: [
+    "function C(e){if(typeof e!==`string`)return null;let t=e.trim();",
+    /queryKey:[$A-Z_a-z][$\w]*\(`read-file-binary`,[$A-Z_a-z][$\w]*\),retry:!1,gcTime:1\/0,staleTime:0/,
+  ],
+  webviewModelSettings: [
+    /function [$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*=null\)\{let .*?,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*==null\?null:[$A-Z_a-z][$\w]*\.cwd,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*\(\{hostId:[$A-Z_a-z][$\w]*,cwd:[$A-Z_a-z][$\w]*,isHostRegistered:[$A-Z_a-z][$\w]*\}\)/,
+  ],
+  webviewPluginAvailability: [
+    "function codexLinuxPluginHasMcp",
+    "function codexLinuxRestartAppServerForPluginMcp",
+    "codexLinuxRestartAppServerForPluginMcp(f,t,D)",
+  ],
 };
 
 export const START_SCRIPT_MARKERS = {

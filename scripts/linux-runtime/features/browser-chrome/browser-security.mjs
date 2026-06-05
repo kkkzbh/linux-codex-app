@@ -1,5 +1,5 @@
-import { FEATURE_MARKERS } from "../markers.mjs";
-import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
+import { FEATURE_MARKERS } from "../../markers.mjs";
+import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../../replace-utils.mjs";
 
 const browserSecurityMethodsAnchor =
   "}finally{this.abortControllers.delete(t.requestId)}}cancelRequest(e){";

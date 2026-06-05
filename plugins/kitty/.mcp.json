@@ -1,12 +1,10 @@
 {
-  "mcpServers": {
-    "kitty": {
-      "command": "node",
-      "args": [
-        "./scripts/kitty-mcp.mjs"
-      ],
-      "cwd": ".",
-      "env": {}
-    }
+  "kitty": {
+    "command": "node",
+    "args": [
+      "./scripts/kitty-mcp.mjs"
+    ],
+    "cwd": ".",
+    "env": {}
   }
 }

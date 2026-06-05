@@ -86,7 +86,9 @@ for (const manifestPath of manifests) {
 
 for (const script of [
   "install.sh",
+  "scripts/build-runtime-packages.sh",
   "scripts/build-runtime-rpm.sh",
+  "scripts/release-local.sh",
   "scripts/linux-codex-app",
   "scripts/verify-install.sh",
 ]) {

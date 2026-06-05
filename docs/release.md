@@ -11,32 +11,45 @@
    npm run check
    ```
 
-4. Build RPMs locally on a Fedora 44 x86_64 machine when debugging the release
-   pipeline:
+4. Run the local release on a Fedora 44 x86_64 machine. The local machine is
+   the authoritative release environment because it can validate the converted
+   desktop runtime and KDE integration directly. The full package build requires
+   RPM tooling, `dpkg-deb`, `zstd`, and `appimagetool` or network access to
+   download the default appimagetool:
 
    ```bash
-   LINUX_CODEX_APP_REPO_BASEURL='https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch' \
-   ./scripts/build-runtime-rpm.sh upstream/codex-app-YYYYMMDD.json
+   npm run release:local -- upstream/codex-app-YYYYMMDD.json
    ```
 
-5. Smoke-test the generated RPMs in a clean Fedora 44 VM or container. A
-   physical Fedora 44 build host is valid; the GitHub Actions workflow uses a
-   Fedora 44 container only to pin the CI build and smoke environment.
-6. Run the `release-rpm` GitHub Actions workflow. It builds inside Fedora 44,
-   signs RPMs, verifies signatures, uploads RPMs and `SHA256SUMS` to a GitHub
-   Release, regenerates signed GitHub Pages DNF repo metadata, and keeps
-   existing non-yanked packages in metadata.
-7. Publish release notes with:
+   If `RPM_SIGNING_KEY_ID` names a local GPG secret key, the script signs RPMs
+   and publishes signed GitHub Pages DNF repository metadata. Without the local
+   signing key, the script uploads GitHub Release assets and skips DNF repo
+   metadata publishing.
+
+5. Smoke-test the generated RPMs in a clean Fedora 44 VM or container, DEBs on
+   a Debian/Ubuntu-family system, pacman packages on Arch, and AppImage/tar.gz
+   launch paths on a clean Linux desktop.
+6. The `smoke-packages` GitHub Actions workflow builds inside a Fedora 44
+   container and uploads temporary smoke artifacts. It is a validation path,
+   not the authoritative release publisher.
+7. Local release assets include RPM, DEB, AppImage, tar.gz, pacman
+   `pkg.tar.zst`, and `SHA256SUMS`.
+8. Publish release notes with:
    - linux-codex-app version and RPM release
    - upstream Codex Desktop version/build
    - Electron version
    - Codex CLI version
    - Linux patch version
+   - package formats produced
    - verification summary
    - known limitations and yanked-version notes
 
-Required GitHub Actions secrets:
+Local signing environment:
 
-- `RPM_SIGNING_KEY`: ASCII-armored private signing key or signing subkey.
 - `RPM_SIGNING_KEY_ID`: key id, fingerprint, or signing identity passed to GPG.
-- `RPM_SIGNING_PASSPHRASE`: passphrase used for RPM and `repomd.xml` signing.
+- `RPM_SIGNING_PASSPHRASE`: optional passphrase used by
+  `publish-github-pages-repo.mjs` for `repomd.xml` signing when the local key is
+  passphrase-protected. Unprotected local signing keys do not need it.
+- `GH_TOKEN`: optional. If unset, `gh` uses the logged-in local account for
+  GitHub Release uploads; Pages publishing requires a token because it pushes
+  `gh-pages` through HTTPS.

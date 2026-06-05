@@ -66,6 +66,16 @@ Requires:       nodejs
 Optional kitty terminal plugin assets and helper scripts for linux-codex-app.
 Window-access integration is opt-in through linux-codex-app enable.
 
+%package plugin-computer-use
+Summary:        Optional KDE Computer Use plugin assets for linux-codex-app
+Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       nodejs
+Requires:       python3
+
+%description plugin-computer-use
+Optional KDE Computer Use plugin assets and helper scripts for linux-codex-app.
+KDE RemoteDesktop access is opt-in through linux-codex-app enable.
+
 %package repo
 Summary:        DNF repository file for linux-codex-app
 Requires:       dnf
@@ -105,6 +115,7 @@ fi
 %dir /usr/share/linux-codex-app/plugins
 %exclude /usr/share/linux-codex-app/plugins/dolphin
 %exclude /usr/share/linux-codex-app/plugins/kitty
+%exclude /usr/share/linux-codex-app/plugins/computer-use
 %exclude /etc/yum.repos.d/linux-codex-app.repo
 
 %files plugin-dolphin
@@ -114,6 +125,10 @@ fi
 %files plugin-kitty
 /usr/share/linux-codex-app/plugins/kitty
 /usr/share/linux-codex-app-plugin-kitty
+
+%files plugin-computer-use
+/usr/share/linux-codex-app/plugins/computer-use
+/usr/share/linux-codex-app-plugin-computer-use
 
 %files repo
 %config(noreplace) /etc/yum.repos.d/linux-codex-app.repo

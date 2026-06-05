@@ -7,53 +7,17 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "high",
     reason: "The upstream open-target registry is private bundle state and has no stable external extension point.",
   },
-  "directive-strip": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified directive-regex replacement",
-    risk: "medium",
-    reason: "The hidden-directive sanitizer lives in the webview follow-up bundle.",
-  },
   "markdown-local-media": {
     placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact renderer helper anchors plus CSP markers",
+    locatorStrategy: "retained current-upstream exact renderer helper anchors",
     risk: "high",
-    reason: "Markdown media rendering and CSP are webview-private behavior.",
+    reason: "Local markdown image path resolution is webview-private behavior.",
   },
-  "local-image-cache-refresh": {
+  "generated-output-artifacts": {
     placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified query-option replacement",
-    risk: "medium",
-    reason: "Cache freshness is controlled inside bundled React query callsites.",
-  },
-  "conversation-local-images": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact structured-output case anchors",
+    locatorStrategy: "retained current-upstream exact local-conversation artifact extraction anchors",
     risk: "high",
-    reason: "Conversation image projection is produced by private webview reducers.",
-  },
-  "conversation-model-selector": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified model-settings cwd hook",
-    risk: "medium",
-    reason: "The start-screen model selector has no installer-owned external hook.",
-  },
-  preferences: {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified main-process RPC handler insertion",
-    risk: "medium",
-    reason: "Preferred-app persistence is implemented in the Electron main bundle.",
-  },
-  "remote-control-device-key": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact device-key backend replacement",
-    risk: "high",
-    reason: "Remote-control enrollment calls the bundled native device-key backend directly.",
-  },
-  "remote-control-visibility": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified remote-control UI gate replacement",
-    risk: "medium",
-    reason: "The visibility gates are compiled into webview feature modules.",
+    reason: "Generated image output artifact extraction is private webview conversation state.",
   },
   "native-titlebar": {
     placement: PRIVATE_BUNDLE,
@@ -73,53 +37,11 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "medium",
     reason: "The avatar overlay is controlled by bundled window and webview styles.",
   },
-  "working-sessions-status": {
+  "browser-chrome": {
     placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified IPC initializer and tray-thread lifecycle hook",
-    risk: "medium",
-    reason: "The running-session count is only available inside the tray state update path.",
-  },
-  "browser-use": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified feature-flag gate replacement",
-    risk: "medium",
-    reason: "Browser Use availability is gated in the Electron feature assembly.",
-  },
-  "remote-control-backend": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified desktop capability assembly replacement",
+    locatorStrategy: "aggregate Browser/Chrome subpatch directory",
     risk: "high",
-    reason: "Remote-control backend capability selection is private main-process bundle logic.",
-  },
-  "browser-backend-registry": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact native-pipe server wrapper replacement",
-    risk: "high",
-    reason: "The in-app browser backend pipe is created inside private Electron runtime code.",
-  },
-  "browser-security": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact auth-fetch and approval bridge insertion",
-    risk: "high",
-    reason: "Browser security mediation spans private main-process sockets and webview client calls.",
-  },
-  "chrome-extension-status": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified Chrome profile root branch",
-    risk: "medium",
-    reason: "The plugin installed-state probe reads platform-specific profile paths in the main bundle.",
-  },
-  "chrome-setup-url": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "regex-preserve-minified plugin setup URL and open-in-browser action markers",
-    risk: "medium",
-    reason: "The setup buttons are compiled webview plugin-install UI callsites.",
-  },
-  "plugin-mcp-reload": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact plugin install-flow anchors",
-    risk: "medium",
-    reason: "Plugin-installed MCP servers are loaded by the app-server, but plugin installation is handled in a private webview flow.",
+    reason: "Browser Use and Chrome support spans private Electron feature gates, native-pipe registration, security mediation, Chrome profile probes, and plugin setup UI.",
   },
 };
 

@@ -1,5 +1,5 @@
-import { FEATURE_MARKERS } from "../markers.mjs";
-import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
+import { FEATURE_MARKERS } from "../../markers.mjs";
+import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../../replace-utils.mjs";
 
 const iabNativePipeAnchor =
   "var iz=t.Fr(`browser-use-native-pipe-server`);async function az({apiImpl:e,nativePipeDirectory:t,pipePath:n,socketPeerAuthorizer:r=nz()}){let i;try{i=await HR({nativePipeDirectory:t,pipePath:n,socketPeerAuthorizer:r,events:{onListening:e=>{iz().info(`browser-use native pipe listening`,{safe:{},sensitive:{pipePath:e}})},onAuthorizationError:e=>{iz().warning(`browser-use native pipe peer authorization failed`,{safe:{},sensitive:{error:e}})},onRejectedSocket:e=>{iz().warning(`browser-use native pipe rejected socket peer`,{safe:{reason:e.reason??`unauthorized`},sensitive:{}})},onSocketError:e=>{iz().warning(`browser-use native pipe socket error`,{safe:{},sensitive:{error:e}})}}})}catch(t){throw e.dispose(),t}let a=new je(i,e,{onMoveMouseError:(e,t)=>{iz().warning(`IAB_LIFECYCLE failed to move browser use cursor`,{safe:{tabId:t.tabId},sensitive:{error:e}})}}),o=e.addCdpEventListener(e=>{a.sendCdpEvent(e)});return{pipePath:i.pipePath,dispose:async()=>{o(),e.dispose(),await i.close()}}}function oz";

@@ -9,6 +9,8 @@ Use the kitty tools when the user wants Codex to use a visible local kitty termi
 
 Use `kitty_list` before choosing among existing numbered terminals, when the user asks what kitty windows exist, or after creating a split/window/tab so you can report the new window id. Treat `short_id` such as `K1` as the user-facing selector.
 
+Use `kitty_open` when the user wants a visible numbered kitty terminal but there is no command, text, or key input to send yet. `kitty_open` opens a managed kitty in the background without taking desktop focus, and returns the `short_id` and window metadata to use in later calls. On KWin, managed opens best-effort restore focus to the previously active window if the terminal is activated anyway.
+
 Use `kitty_send` for all terminal input. It has three mutually exclusive modes:
 
 - `command`: shell commands. Example: `kitty_send({ "short_id": "K1", "command": "pwd" })`. A newline is added automatically, the default wait strategy is `quiet`, and the visible terminal shows only the real command and output.
@@ -23,4 +25,4 @@ Use `kitty_read` to inspect what a numbered terminal currently looks like withou
 
 Do not expect `kitty_send` to know when remote ssh commands, tmux pane commands, or TUI actions have completed. In those contexts, use `text` or `key`, read the screen feedback, and continue interactively.
 
-Do not use hidden open/run/layout/focus/close helpers as the model workflow. The model-facing kitty interface is `kitty_list`, `kitty_send`, and `kitty_read`.
+Do not use hidden run/layout/focus/close helpers as the model workflow. The model-facing kitty interface is `kitty_list`, `kitty_open`, `kitty_send`, and `kitty_read`.

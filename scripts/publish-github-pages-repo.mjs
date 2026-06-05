@@ -153,7 +153,12 @@ function signRepomd(repomdPath, gpgKeyId) {
   const passphrase = process.env.RPM_SIGNING_PASSPHRASE;
 
   if (!passphrase) {
-    fail("RPM_SIGNING_PASSPHRASE is required to sign repomd.xml");
+    execFileSync(
+      "gpg",
+      ["--batch", "--yes", "--local-user", gpgKeyId, "--armor", "--detach-sign", repomdPath],
+      { stdio: "inherit" },
+    );
+    return;
   }
 
   execFileSync(

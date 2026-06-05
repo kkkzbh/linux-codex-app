@@ -16,7 +16,7 @@ Usage: linux-codex-app <command>
 Commands:
   status
   verify
-  enable <dolphin-window-access|kitty-window-access>
+  enable <dolphin-window-access|kitty-window-access|computer-use-access>
   disable <dolphin-window-access|kitty-window-access>
 EOF
 }
@@ -79,7 +79,7 @@ remove_marked_wrapper() {
 installed_optional_plugins() {
     local plugin
 
-    for plugin in dolphin kitty; do
+    for plugin in dolphin kitty computer-use; do
         if [ -d "$SHARE_ROOT/plugins/$plugin" ]; then
             printf '%s\n' "$plugin"
         fi
@@ -123,6 +123,17 @@ verify_optional_plugin() {
             require_plugin_asset "$root/skills/kitty/SKILL.md" "Kitty skill"
             require_plugin_asset "$root/assets/kitty.png" "Kitty plugin icon"
             require_plugin_asset "$PLUGIN_SHARE_ROOT/linux-codex-app-plugin-kitty/.agents/plugins/marketplace.json" "Kitty marketplace entry"
+            ;;
+        computer-use)
+            require_plugin_asset "$root/.codex-plugin/plugin.json" "Computer Use plugin manifest"
+            require_plugin_asset "$root/.mcp.json" "Computer Use MCP manifest"
+            require_plugin_executable "$root/scripts/computer-use-mcp.mjs" "Computer Use MCP server"
+            require_plugin_asset "$root/scripts/computer-use-lib.mjs" "Computer Use MCP library"
+            require_plugin_asset "$root/scripts/computer-use-broker.py" "Computer Use broker"
+            require_plugin_asset "$root/scripts/computer-use-glow-overlay.py" "Computer Use overlay"
+            require_plugin_asset "$root/skills/computer-use/SKILL.md" "Computer Use skill"
+            require_plugin_asset "$root/assets/computer-use.png" "Computer Use plugin icon"
+            require_plugin_asset "$PLUGIN_SHARE_ROOT/linux-codex-app-plugin-computer-use/.agents/plugins/marketplace.json" "Computer Use marketplace entry"
             ;;
         *)
             error "Unknown installed optional plugin: $plugin"
@@ -183,6 +194,11 @@ enable_command() {
             [ -d "$SHARE_ROOT/plugins/kitty" ] || error "Kitty plugin package is not installed"
             [ -x "$LIBEXEC_ROOT/scripts/install-kitty-window-access.sh" ] || error "Kitty enable helper missing"
             "$LIBEXEC_ROOT/scripts/install-kitty-window-access.sh"
+            ;;
+        computer-use-access)
+            [ -d "$SHARE_ROOT/plugins/computer-use" ] || error "Computer Use plugin package is not installed"
+            [ -x "$LIBEXEC_ROOT/scripts/install-computer-use-access.sh" ] || error "Computer Use enable helper missing"
+            "$LIBEXEC_ROOT/scripts/install-computer-use-access.sh"
             ;;
         *)
             usage

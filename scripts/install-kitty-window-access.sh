@@ -91,9 +91,9 @@ uid="\$(id -u 2>/dev/null || printf '%s' "\${USER:-unknown}")"
 if [ -n "\${CODEX_KITTY_STATE_DIR:-}" ]; then
     state_root="\$CODEX_KITTY_STATE_DIR"
 elif [ -n "\${XDG_RUNTIME_DIR:-}" ]; then
-    state_root="\$XDG_RUNTIME_DIR/codex-kitty"
+    state_root="\$XDG_RUNTIME_DIR/codex/plugins/kitty"
 else
-    state_root="/tmp/codex-kitty-\$uid"
+    state_root="/tmp/codex-plugin-kitty-\$uid"
 fi
 
 alloc_env="\$(python3 - "\$state_root" "\$\$" <<'PY'

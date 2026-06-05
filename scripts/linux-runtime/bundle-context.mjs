@@ -53,11 +53,21 @@ export function createLinuxPatchContext(extractedAppDir) {
     /^settings-page-[^.]+\.js$/,
     "webview settings page",
   );
+  const webviewAppShellPath = findAssetFile(
+    webviewAssetsDir,
+    /^app-shell-[^.]+\.js$/,
+    "webview app shell",
+  );
   const webviewFollowUpPath = findAssetFileContaining(
     webviewAssetsDir,
     /^[^.]+\.js$/,
     "case`steered`:a.push({type:`steered`",
     "webview follow-up",
+  );
+  const webviewLocalConversationThreadPath = findAssetFile(
+    webviewAssetsDir,
+    /^local-conversation-thread-[^.]+\.js$/,
+    "webview local conversation thread",
   );
   const webviewMarkdownPath = findAssetFileContaining(
     webviewAssetsDir,
@@ -111,7 +121,9 @@ export function createLinuxPatchContext(extractedAppDir) {
     webviewCollaborationModePath,
     webviewComposerPath,
     webviewSettingsPagePath,
+    webviewAppShellPath,
     webviewFollowUpPath,
+    webviewLocalConversationThreadPath,
     webviewMarkdownPath,
     webviewUsePluginsPath,
     webviewDiffAnnotationsPath,
@@ -162,11 +174,23 @@ export function createLinuxPatchContext(extractedAppDir) {
     writeWebviewSettingsPageSource(source) {
       writeFileSync(webviewSettingsPagePath, source);
     },
+    readWebviewAppShellSource() {
+      return readFileSync(webviewAppShellPath, "utf8");
+    },
+    writeWebviewAppShellSource(source) {
+      writeFileSync(webviewAppShellPath, source);
+    },
     readWebviewFollowUpSource() {
       return readFileSync(webviewFollowUpPath, "utf8");
     },
     writeWebviewFollowUpSource(source) {
       writeFileSync(webviewFollowUpPath, source);
+    },
+    readWebviewLocalConversationThreadSource() {
+      return readFileSync(webviewLocalConversationThreadPath, "utf8");
+    },
+    writeWebviewLocalConversationThreadSource(source) {
+      writeFileSync(webviewLocalConversationThreadPath, source);
     },
     readWebviewMarkdownSource() {
       return readFileSync(webviewMarkdownPath, "utf8");
@@ -225,7 +249,9 @@ export function createLinuxPatchContext(extractedAppDir) {
         webviewModelSettings: readFileSync(webviewCollaborationModePath, "utf8"),
         webviewComposer: readFileSync(webviewComposerPath, "utf8"),
         webviewSettingsPage: readFileSync(webviewSettingsPagePath, "utf8"),
+        webviewAppShell: readFileSync(webviewAppShellPath, "utf8"),
         webviewFollowUp: readFileSync(webviewFollowUpPath, "utf8"),
+        webviewLocalConversationThread: readFileSync(webviewLocalConversationThreadPath, "utf8"),
         webviewMarkdown: readFileSync(webviewMarkdownPath, "utf8"),
         webviewUsePlugins: readFileSync(webviewUsePluginsPath, "utf8"),
         webviewDiffAnnotations: readFileSync(webviewDiffAnnotationsPath, "utf8"),
@@ -256,7 +282,9 @@ export function createLinuxPatchContext(extractedAppDir) {
       writeFileSync(webviewCollaborationModePath, sources.webviewModelSettings);
       writeFileSync(webviewComposerPath, sources.webviewComposer);
       writeFileSync(webviewSettingsPagePath, sources.webviewSettingsPage);
+      writeFileSync(webviewAppShellPath, sources.webviewAppShell);
       writeFileSync(webviewFollowUpPath, sources.webviewFollowUp);
+      writeFileSync(webviewLocalConversationThreadPath, sources.webviewLocalConversationThread);
       writeFileSync(webviewMarkdownPath, sources.webviewMarkdown);
       writeFileSync(webviewUsePluginsPath, sources.webviewUsePlugins);
       writeFileSync(webviewDiffAnnotationsPath, sources.webviewDiffAnnotations);
@@ -288,7 +316,9 @@ export function createLinuxPatchContext(extractedAppDir) {
       this.verifyJavaScript(webviewCollaborationModePath);
       this.verifyJavaScript(webviewComposerPath);
       this.verifyJavaScript(webviewSettingsPagePath);
+      this.verifyJavaScript(webviewAppShellPath);
       this.verifyJavaScript(webviewFollowUpPath);
+      this.verifyJavaScript(webviewLocalConversationThreadPath);
       this.verifyJavaScript(webviewMarkdownPath);
       this.verifyJavaScript(webviewUsePluginsPath);
       this.verifyJavaScript(webviewDiffAnnotationsPath);

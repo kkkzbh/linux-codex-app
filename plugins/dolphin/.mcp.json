@@ -1,12 +1,10 @@
 {
-  "mcpServers": {
-    "dolphin": {
-      "command": "node",
-      "args": [
-        "./scripts/dolphin-mcp.mjs"
-      ],
-      "cwd": ".",
-      "env": {}
-    }
+  "dolphin": {
+    "command": "node",
+    "args": [
+      "./scripts/dolphin-mcp.mjs"
+    ],
+    "cwd": ".",
+    "env": {}
   }
 }

@@ -1,208 +1,54 @@
-name: release-rpm
+name: smoke-packages
 
 on:
   workflow_dispatch:
     inputs:
       manifest:
         description: "Pinned upstream manifest path"
-        default: "upstream/codex-app-20260530.json"
+        default: "upstream/codex-app-20260602.json"
         required: true
+  pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
-  contents: write
-  pages: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: release-rpm
-  cancel-in-progress: false
+  group: smoke-packages-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  smoke:
     runs-on: ubuntu-latest
     container: fedora:44
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Install build dependencies
         run: |
           dnf install -y \
-            bash createrepo_c curl findutils gcc-c++ gh git gnupg2 make nodejs npm python3 \
-            rpm-build rpm-sign rsync tar unzip desktop-file-utils
-      - name: Derive release metadata
-        id: meta
-        run: |
-          node - "${{ inputs.manifest }}" <<'NODE' >> "$GITHUB_OUTPUT"
-          const fs = require("node:fs");
-          const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-          const tag = `v${manifest.rpmVersion}-${manifest.rpmRelease.replace(/^1\.codex/, "codex").replaceAll("_", ".")}`;
-          console.log(`tag=${tag}`);
-          console.log(`title=linux-codex-app ${manifest.rpmVersion} (${manifest.appVersion})`);
-          NODE
-          repo_name="${GITHUB_REPOSITORY#*/}"
-          echo "pages_base_url=https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}" >> "$GITHUB_OUTPUT"
-          echo "fedora_release=44" >> "$GITHUB_OUTPUT"
-          echo "gpg_key_url=https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/RPM-GPG-KEY-linux-codex-app" >> "$GITHUB_OUTPUT"
+            bash curl findutils gcc-c++ git make nodejs npm python3 \
+            dpkg rpm-build rsync tar unzip zstd desktop-file-utils
       - name: Mark scripts executable
         run: chmod +x install.sh scripts/*.sh scripts/linux-codex-app scripts/verify-install.sh
-      - name: Build direct-runtime RPM
+      - name: Run checks
+        run: npm run check
+      - name: Build unsigned package artifacts
         env:
-          LINUX_CODEX_APP_REPO_BASEURL: ${{ steps.meta.outputs.pages_base_url }}/rpm/fedora/$releasever/$basearch
+          LINUX_CODEX_APP_REPO_BASEURL: https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch
           LINUX_CODEX_APP_REPO_ENABLED: "1"
-        run: ./scripts/build-runtime-rpm.sh "${{ inputs.manifest }}"
-      - name: Import RPM signing key
-        env:
-          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
-          RPM_SIGNING_KEY_ID: ${{ secrets.RPM_SIGNING_KEY_ID }}
-          RPM_SIGNING_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
-        run: |
-          : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
-          : "${RPM_SIGNING_KEY:?RPM_SIGNING_KEY secret is required}"
-          : "${RPM_SIGNING_KEY_ID:?RPM_SIGNING_KEY_ID secret is required}"
-          : "${RPM_SIGNING_PASSPHRASE:?RPM_SIGNING_PASSPHRASE secret is required}"
-
-          export GNUPGHOME="$RUNNER_TEMP/linux-codex-app-gnupg"
-          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
-          install -m 700 -d "$GNUPGHOME"
-          printf 'allow-loopback-pinentry\n' > "$GNUPGHOME/gpg-agent.conf"
-          printf 'pinentry-mode loopback\n' > "$GNUPGHOME/gpg.conf"
-          gpgconf --kill gpg-agent
-
-          printf '%s' "$RPM_SIGNING_KEY" | gpg --batch --import
-          gpg --batch --list-secret-keys "$RPM_SIGNING_KEY_ID"
-
-          printf 'linux-codex-app signing check\n' > "$RUNNER_TEMP/signing-check.txt"
-          printf '%s' "$RPM_SIGNING_PASSPHRASE" | \
-            gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
-              --local-user "$RPM_SIGNING_KEY_ID" \
-              --detach-sign "$RUNNER_TEMP/signing-check.txt"
-
-          gpg --batch --armor --export "$RPM_SIGNING_KEY_ID" > RPM-GPG-KEY-linux-codex-app
-      - name: Sign RPMs
-        env:
-          RPM_SIGNING_KEY_ID: ${{ secrets.RPM_SIGNING_KEY_ID }}
-          RPM_SIGNING_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
-        run: |
-          : "${GNUPGHOME:?GNUPGHOME is required}"
-          : "${RPM_SIGNING_KEY_ID:?RPM_SIGNING_KEY_ID secret is required}"
-          : "${RPM_SIGNING_PASSPHRASE:?RPM_SIGNING_PASSPHRASE secret is required}"
-
-          sign_passphrase_file="$RUNNER_TEMP/rpm-signing-passphrase"
-          printf '%s' "$RPM_SIGNING_PASSPHRASE" > "$sign_passphrase_file"
-          chmod 600 "$sign_passphrase_file"
-
-          cat > "$HOME/.rpmmacros" <<EOF
-          %_signature gpg
-          %_gpg_path $GNUPGHOME
-          %_gpg_sign_cmd_extra_args --batch --yes --pinentry-mode loopback --passphrase-file $sign_passphrase_file
-          EOF
-
-          rpmsign --key-id "$RPM_SIGNING_KEY_ID" --addsign dist/*.rpm
-          rpmkeys --import RPM-GPG-KEY-linux-codex-app
-          rpm -K dist/*.rpm | tee rpm-signature-checks.txt
-          while IFS= read -r line; do
-            case "$line" in
-              *": digests signatures OK") ;;
-              *) echo "RPM signature check failed: $line" >&2; exit 1 ;;
-            esac
-          done < rpm-signature-checks.txt
-
-          (cd dist && sha256sum ./*.rpm > SHA256SUMS)
+        run: ./scripts/build-runtime-packages.sh "${{ inputs.manifest || 'upstream/codex-app-20260602.json' }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-codex-app-rpms
+          name: linux-codex-app-smoke-packages
           path: |
             dist/*.rpm
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.tar.gz
+            dist/*.pkg.tar.zst
             dist/SHA256SUMS
-            RPM-GPG-KEY-linux-codex-app
-            rpm-signature-checks.txt
-      - name: Publish GitHub Release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_TITLE: ${{ steps.meta.outputs.title }}
-        run: |
-          cat > release-notes.md <<EOF
-          Fedora 44 x86_64 RPM build from pinned upstream manifest \`${{ inputs.manifest }}\`.
-
-          RPM packages and repository metadata are signed by the linux-codex-app RPM signing key.
-
-          Install through the DNF repository after GitHub Pages updates:
-
-          \`\`\`bash
-          sudo curl -fsSL -o /etc/yum.repos.d/linux-codex-app.repo \\
-            ${{ steps.meta.outputs.pages_base_url }}/linux-codex-app.repo
-          sudo dnf install linux-codex-app
-          \`\`\`
-          EOF
-
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TITLE" --notes-file release-notes.md
-          else
-            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TITLE" --notes-file release-notes.md
-          fi
-
-          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*.rpm dist/SHA256SUMS RPM-GPG-KEY-linux-codex-app rpm-signature-checks.txt --clobber
-      - name: Publish DNF repository metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-          PAGES_BASE_URL: ${{ steps.meta.outputs.pages_base_url }}
-          RPM_SIGNING_KEY_ID: ${{ secrets.RPM_SIGNING_KEY_ID }}
-          RPM_SIGNING_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
-        run: |
-          repo_root="$PWD"
-          if [ ! -f "$repo_root/scripts/publish-github-pages-repo.mjs" ]; then
-            repo_root="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
-          fi
-          [ -f "$repo_root/scripts/publish-github-pages-repo.mjs" ] || {
-            echo "Could not locate repository root for DNF metadata publishing" >&2
-            exit 1
-          }
-          cd "$repo_root"
-
-          repo_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          rm -rf pages
-          if git ls-remote --exit-code --heads "$repo_url" gh-pages >/dev/null 2>&1; then
-            git clone --depth 1 --branch gh-pages "$repo_url" pages
-          else
-            mkdir pages
-            git -C pages init -b gh-pages
-            git -C pages remote add origin "$repo_url"
-          fi
-
-          node scripts/publish-github-pages-repo.mjs \
-            --rpm-dir dist \
-            --pages-dir pages \
-            --release-tag "$RELEASE_TAG" \
-            --repository "$GITHUB_REPOSITORY" \
-            --pages-base-url "$PAGES_BASE_URL" \
-            --fedora-release "${{ steps.meta.outputs.fedora_release }}" \
-            --public-key-file RPM-GPG-KEY-linux-codex-app \
-            --gpg-key-id "$RPM_SIGNING_KEY_ID" \
-            --arch x86_64
-
-          git -C pages add .
-          if git -C pages diff --cached --quiet; then
-            echo "No DNF repository metadata changes."
-          else
-            git -C pages commit -m "Publish RPM repository for $RELEASE_TAG"
-            git -C pages push origin gh-pages
-          fi
-
-          pages_config="$(gh api "repos/$GITHUB_REPOSITORY/pages")"
-          pages_source="$(printf '%s' "$pages_config" | node -e '
-            const fs = require("node:fs");
-            const pages = JSON.parse(fs.readFileSync(0, "utf8"));
-            console.log(`${pages.source?.branch ?? ""}:${pages.source?.path ?? ""}`);
-          ')"
-          if [ "$pages_source" != "gh-pages:/" ]; then
-            echo "GitHub Pages must be configured to publish from gh-pages:/, got $pages_source" >&2
-            exit 1
-          fi

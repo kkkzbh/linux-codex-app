@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST_PATH="${1:-$REPO_ROOT/upstream/codex-app-20260527.json}"
+MANIFEST_PATH="${1:-$REPO_ROOT/upstream/codex-app-20260602.json}"
 BUILD_ROOT="${LINUX_CODEX_APP_BUILD_ROOT:-$REPO_ROOT/.build/release}"
 DIST_DIR="${LINUX_CODEX_APP_DIST_DIR:-$REPO_ROOT/dist}"
 
@@ -98,8 +98,27 @@ mkdir -p "$sevenzip_extract_dir"
 tar -xJf "$sevenzip_archive" -C "$sevenzip_extract_dir"
 [ -x "$sevenzip_bin" ] || error "Expected pinned 7-Zip executable after extraction: $sevenzip_bin"
 
-info "Downloading pinned Codex DMG"
-curl -L --fail --show-error --output "$dmg_path" "$dmg_url"
+cached_dmg_candidates=()
+if [ -n "${LINUX_CODEX_APP_DMG_PATH:-}" ]; then
+    cached_dmg_candidates+=("$LINUX_CODEX_APP_DMG_PATH")
+fi
+cached_dmg_candidates+=(
+    "$REPO_ROOT/../codex-app/codex-desktop-linux-installer/Codex.dmg"
+    "$HOME/code/codex-app/codex-desktop-linux-installer/Codex.dmg"
+)
+
+for cached_dmg in "${cached_dmg_candidates[@]}"; do
+    if [ -f "$cached_dmg" ] && [ "$(sha256_file "$cached_dmg")" = "$dmg_sha256" ]; then
+        info "Using cached pinned Codex DMG: $cached_dmg"
+        cp "$cached_dmg" "$dmg_path"
+        break
+    fi
+done
+
+if [ ! -f "$dmg_path" ]; then
+    info "Downloading pinned Codex DMG"
+    curl -L --fail --show-error --output "$dmg_path" "$dmg_url"
+fi
 
 actual_size="$(stat -c %s "$dmg_path")"
 if [ "$actual_size" != "$dmg_size" ]; then
@@ -171,16 +190,20 @@ rsync -a "$REPO_ROOT/scripts/" "$payload_root/usr/libexec/linux-codex-app/script
 cp "$REPO_ROOT/scripts/linux-codex-app" "$payload_root/usr/bin/linux-codex-app"
 chmod +x "$payload_root/usr/bin/linux-codex-app"
 
-for plugin_name in dolphin kitty; do
+for plugin_name in dolphin kitty computer-use; do
     if [ -d "$REPO_ROOT/plugins/$plugin_name" ]; then
-        rsync -a "$REPO_ROOT/plugins/$plugin_name" "$payload_root/usr/share/linux-codex-app/plugins/"
+        rsync -a --exclude '__pycache__/' --exclude '*.pyc' "$REPO_ROOT/plugins/$plugin_name" "$payload_root/usr/share/linux-codex-app/plugins/"
     fi
 done
 
-for plugin_name in dolphin kitty; do
+for plugin_name in dolphin kitty computer-use; do
     plugin_marketplace_root="$payload_root/usr/share/linux-codex-app-plugin-$plugin_name"
+    marketplace_plugin_name="$plugin_name"
+    if [ "$plugin_name" = "computer-use" ]; then
+        marketplace_plugin_name="kde-computer-use"
+    fi
     mkdir -p "$plugin_marketplace_root/.agents/plugins" "$plugin_marketplace_root/plugins"
-    rsync -a "$REPO_ROOT/plugins/$plugin_name" "$plugin_marketplace_root/plugins/"
+    rsync -a --exclude '__pycache__/' --exclude '*.pyc' "$REPO_ROOT/plugins/$plugin_name" "$plugin_marketplace_root/plugins/"
     cat > "$plugin_marketplace_root/.agents/plugins/marketplace.json" <<EOF
 {
   "name": "linux-codex-app-$plugin_name",
@@ -189,7 +212,7 @@ for plugin_name in dolphin kitty; do
   },
   "plugins": [
     {
-      "name": "$plugin_name",
+      "name": "$marketplace_plugin_name",
       "source": {
         "source": "local",
         "path": "./plugins/$plugin_name"

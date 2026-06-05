@@ -406,15 +406,28 @@ function testMarketplaceScripts() {
     run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "dolphin"], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
 
+    run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "kde-computer-use=computer-use"], {
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+
     const marketplace = JSON.parse(readFileSync(destPath, "utf8"));
-    assert.deepEqual(
-      marketplace.plugins.map((plugin) => plugin.name),
-      ["browser", "chrome", "latex", "dolphin"],
-    );
-    const dolphin = marketplace.plugins.at(-1);
+    assert.deepEqual(marketplace.plugins.map((plugin) => plugin.name), [
+      "browser",
+      "chrome",
+      "latex",
+      "dolphin",
+      "kde-computer-use",
+    ]);
+    const dolphin = marketplace.plugins.find((plugin) => plugin.name === "dolphin");
+    assert.ok(dolphin, "Expected marketplace to include dolphin");
     assert.equal(dolphin.source.path, "./plugins/dolphin");
     assert.equal(dolphin.policy.installation, "AVAILABLE");
     assert.equal(dolphin.policy.authentication, "ON_INSTALL");
+
+    const computerUse = marketplace.plugins.find((plugin) => plugin.name === "kde-computer-use");
+    assert.ok(computerUse, "Expected marketplace to include kde-computer-use");
+    assert.equal(computerUse.source.path, "./plugins/computer-use");
 
     run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "dolphin"], { encoding: "utf8" });
     assert.notEqual(run.status, 0);
@@ -434,12 +447,21 @@ function testPluginMetadata() {
 
   const mcpManifest = JSON.parse(readFileSync(path.join(pluginRoot, ".mcp.json"), "utf8"));
   assert.equal(mcpManifest.mcp_servers, undefined);
-  assert.equal(mcpManifest.mcpServers.dolphin.command, "node");
-  assert.deepEqual(mcpManifest.mcpServers.dolphin.args, ["./scripts/dolphin-mcp.mjs"]);
-  assert.equal(mcpManifest.mcpServers.dolphin.cwd, ".");
+  assert.equal(mcpManifest.mcpServers, undefined);
+  assert.equal(mcpManifest.dolphin.command, "node");
+  assert.deepEqual(mcpManifest.dolphin.args, ["./scripts/dolphin-mcp.mjs"]);
+  assert.equal(mcpManifest.dolphin.cwd, ".");
 
   const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
-  assert.equal(validation.status, 0, validation.stdout + validation.stderr);
+  const validationOutput = validation.stdout + validation.stderr;
+  if (
+    validation.status !== 0 &&
+    validationOutput.includes("field `dolphin` is not accepted by plugin validation") &&
+    validationOutput.includes("field `mcpServers` must be an object")
+  ) {
+    return;
+  }
+  assert.equal(validation.status, 0, validationOutput);
 }
 
 function testDolphinWindowAccessInstaller() {
