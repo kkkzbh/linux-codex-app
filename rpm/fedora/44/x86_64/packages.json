@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-05T04:42:00.905Z",
+  "updatedAt": "2026-06-07T11:20:58.780Z",
   "fedoraRelease": "44",
   "arch": "x86_64",
   "packages": [
@@ -23,10 +23,22 @@
       "sha256": "be6f04bdb0bdc98cfd953ef55e2597eac1fe40fec18fe5a0c9e7ae5923e43e3f"
     },
     {
+      "fileName": "linux-codex-app-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "releaseTag": "v0.1.2-codex26.527.60818",
+      "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.2-codex26.527.60818/linux-codex-app-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "sha256": "a8082fe025ad59857020de3def70d798423b53bb487213bb25fda3fb21707150"
+    },
+    {
       "fileName": "linux-codex-app-plugin-computer-use-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm",
       "releaseTag": "v0.1.1-codex26.527.60818",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.1-codex26.527.60818/linux-codex-app-plugin-computer-use-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm",
       "sha256": "f86d13b69c7e1b4ce327261a0e0db89da7eb039fc581d07d9e930952ca586303"
+    },
+    {
+      "fileName": "linux-codex-app-plugin-computer-use-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "releaseTag": "v0.1.2-codex26.527.60818",
+      "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.2-codex26.527.60818/linux-codex-app-plugin-computer-use-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "sha256": "62c8014cdf66b78e5a2bababce26f934cd35a6c17d52a3ed13960118b9877788"
     },
     {
       "fileName": "linux-codex-app-plugin-dolphin-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -47,6 +59,12 @@
       "sha256": "8db87bee94462c13d8587969ae5044fe5b082f58259134637d6edcd1c12b29dc"
     },
     {
+      "fileName": "linux-codex-app-plugin-dolphin-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "releaseTag": "v0.1.2-codex26.527.60818",
+      "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.2-codex26.527.60818/linux-codex-app-plugin-dolphin-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "sha256": "b716602e8b20b08f48a6d14fc488a0df7d8b97507e7c354a23d08c659a5dabf8"
+    },
+    {
       "fileName": "linux-codex-app-plugin-kitty-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
       "releaseTag": "v0.1.0-codex26.519.81530",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.0-codex26.519.81530/linux-codex-app-plugin-kitty-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -65,6 +83,12 @@
       "sha256": "0873980fdd73fdab2367b447ec5602108fa7712a064cb67bdc054eb469c183e9"
     },
     {
+      "fileName": "linux-codex-app-plugin-kitty-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "releaseTag": "v0.1.2-codex26.527.60818",
+      "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.2-codex26.527.60818/linux-codex-app-plugin-kitty-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "sha256": "494efe65ba698ba4329d92f3a81c98034ab9104e52f9dd367f50dfe9894f9d70"
+    },
+    {
       "fileName": "linux-codex-app-repo-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
       "releaseTag": "v0.1.0-codex26.519.81530",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.0-codex26.519.81530/linux-codex-app-repo-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -81,6 +105,12 @@
       "releaseTag": "v0.1.1-codex26.527.60818",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.1-codex26.527.60818/linux-codex-app-repo-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm",
       "sha256": "bcbc1eb2a00d750921f1a78b2280002542fc479e55d5d8679d751001cd429e26"
+    },
+    {
+      "fileName": "linux-codex-app-repo-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "releaseTag": "v0.1.2-codex26.527.60818",
+      "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.2-codex26.527.60818/linux-codex-app-repo-0.1.2-1.codex26_527_60818.fc44.x86_64.rpm",
+      "sha256": "724a5d61d81dc1b6a017b95b22b5c489d450e9cb5e825bab03b9aa16832dca14"
     }
   ]
 }
