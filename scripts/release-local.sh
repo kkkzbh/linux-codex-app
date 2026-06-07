@@ -179,6 +179,17 @@ require_cmd git
 require_cmd node
 require_cmd rpm
 
+if [ -z "${RPM_SIGNING_KEY_ID:-}" ] && command -v gpg >/dev/null 2>&1; then
+    discovered_key="$(
+        gpg --list-secret-keys --with-colons "linux-codex-app RPM signing key" 2>/dev/null \
+            | awk -F: '$1 == "fpr" { print $10; exit }'
+    )"
+    if [ -n "$discovered_key" ]; then
+        export RPM_SIGNING_KEY_ID="$discovered_key"
+        info "Using discovered linux-codex-app RPM signing key: $RPM_SIGNING_KEY_ID"
+    fi
+fi
+
 repository="${LINUX_CODEX_APP_GITHUB_REPOSITORY:-$(repo_slug)}"
 repo_name="${repository#*/}"
 pages_base_url="${LINUX_CODEX_APP_PAGES_BASE_URL:-https://${repository%%/*}.github.io/$repo_name}"
