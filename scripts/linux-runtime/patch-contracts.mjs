@@ -43,6 +43,18 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "high",
     reason: "Browser Use and Chrome support spans private Electron feature gates, native-pipe registration, security mediation, Chrome profile probes, and plugin setup UI.",
   },
+  "computer-use-provider": {
+    placement: PRIVATE_BUNDLE,
+    locatorStrategy: "retained current-upstream Computer Use provider selector anchor",
+    risk: "medium",
+    reason: "The Computer Use settings page selects its provider from private plugin marketplace state.",
+  },
+  "computer-use-availability": {
+    placement: PRIVATE_BUNDLE,
+    locatorStrategy: "retained current-upstream Computer Use settings availability gate anchors",
+    risk: "medium",
+    reason: "The Computer Use settings page hides the Any App provider behind private platform and statsig gates.",
+  },
 };
 
 export function getLinuxPatchContract(feature) {

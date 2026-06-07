@@ -493,9 +493,9 @@ class Broker:
         if not command:
             raise ValueError(f"desktop entry has no executable Exec line: {entry.get('path')}")
 
-        app_match = entry.get("startup_wm_class") or entry.get("name")
+        app_matches = desktop_entry_window_queries(entry)
         if params.get("reuse_existing", False):
-            windows = self.list_windows({"app": app_match}).get("windows", [])
+            windows = self.list_windows_for_entry(app_matches)
             target_window = select_existing_window(windows)
             if target_window:
                 activated = None
@@ -536,7 +536,7 @@ class Broker:
         if wait_ms > 0:
             time.sleep(wait_ms / 1000.0)
 
-        windows = self.list_windows({"app": app_match}).get("windows", [])
+        windows = self.list_windows_for_entry(app_matches)
         target_window = select_launch_window(windows, before_window_ids, process.pid)
         activated = None
         if params.get("activate", True) and target_window:
@@ -552,6 +552,17 @@ class Broker:
             "target_window": target_window,
             "activated": activated,
         }
+
+    def list_windows_for_entry(self, queries):
+        by_id = {}
+        for query in queries:
+            for window in self.list_windows({"app": query}).get("windows", []):
+                window_id = window.get("id")
+                if window_id:
+                    by_id.setdefault(window_id, window)
+                else:
+                    by_id.setdefault(f"index:{len(by_id)}", window)
+        return list(by_id.values())
 
     def activate_tray_item(self, params):
         self.ensure_round(params)
@@ -2223,6 +2234,25 @@ def executable_names(exec_line):
             continue
         names.append(Path(part).name)
     return names
+
+
+def desktop_entry_window_queries(entry):
+    values = []
+    for value in (
+        entry.get("startup_wm_class", ""),
+        *executable_names(entry.get("exec", "")),
+        entry.get("desktop_id", ""),
+        Path(entry.get("desktop_id", "")).stem,
+        entry.get("name", ""),
+    ):
+        value = str(value or "").strip()
+        if not value:
+            continue
+        if value.startswith("%"):
+            continue
+        if value not in values:
+            values.append(value)
+    return values
 
 
 def is_generated_chrome_web_app(entry):

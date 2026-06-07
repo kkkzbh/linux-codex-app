@@ -214,9 +214,11 @@ function verifyBundledPlugins(resourcesDir) {
   const chromeRoot = path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome");
   const chromePluginJson = path.join(chromeRoot, ".codex-plugin", "plugin.json");
   const chromeClient = path.join(chromeRoot, "scripts", "browser-client.mjs");
+  const chromeRunningCheck = path.join(chromeRoot, "scripts", "chrome-is-running.js");
   const chromeManifestCheck = path.join(chromeRoot, "scripts", "check-native-host-manifest.js");
   const chromeExtensionIdConfig = path.join(chromeRoot, "scripts", "extension-id.json");
   const chromeInstallManifest = path.join(chromeRoot, "scripts", "installManifest.mjs");
+  const chromeSkill = path.join(chromeRoot, "skills", "control-chrome", "SKILL.md");
   const chromeHostPath = path.join(chromeRoot, "extension-host", "linux", process.arch, "extension-host");
   const chromeHostDir = path.dirname(chromeHostPath);
   const chromeHostConstants = path.join(chromeHostDir, "constants.mjs");
@@ -248,6 +250,8 @@ function verifyBundledPlugins(resourcesDir) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const computerUseSmoke = path.join(scriptDir, "smoke-computer-use-plugin.mjs");
   const computerUseAccess = path.join(scriptDir, "install-computer-use-access.sh");
+  const codexRuntimePath = path.join(resourcesDir, "codex");
+  const nodeRuntimePath = path.join(resourcesDir, "node");
   const nodeReplPath = path.join(resourcesDir, "node_repl");
 
   requirePath(marketplacePath, "OpenAI bundled marketplace");
@@ -255,9 +259,11 @@ function verifyBundledPlugins(resourcesDir) {
   requirePath(browserUseClient, "Browser Use client script");
   requirePath(chromePluginJson, "Chrome plugin manifest");
   requirePath(chromeClient, "Chrome client script");
+  requirePath(chromeRunningCheck, "Chrome running checker");
   requirePath(chromeManifestCheck, "Chrome native host manifest checker");
   requirePath(chromeExtensionIdConfig, "Chrome extension ID config");
   requirePath(chromeInstallManifest, "Chrome native host installer script");
+  requirePath(chromeSkill, "Chrome control skill");
   requireExecutable(chromeHostPath);
   requirePath(chromeHostConstants, "Chrome Linux native host constants module");
   requirePath(chromeHostFrame, "Chrome Linux native host frame module");
@@ -295,6 +301,24 @@ function verifyBundledPlugins(resourcesDir) {
   }
 
   requireExecutable(nodeReplPath);
+  requireExecutable(codexRuntimePath);
+  requireExecutable(nodeRuntimePath);
+
+  const codexRuntimeSource = readFileSync(codexRuntimePath, "utf8");
+  if (!codexRuntimeSource.includes("CODEX_STANDALONE_CLI_PATH")) {
+    fail(`Expected resources/codex to resolve the official standalone CLI: ${codexRuntimePath}`);
+  }
+  if (!codexRuntimeSource.includes("CODEX_CLI_PATH")) {
+    fail(`Expected resources/codex to honor CODEX_CLI_PATH: ${codexRuntimePath}`);
+  }
+
+  const nodeRuntimeSource = readFileSync(nodeRuntimePath, "utf8");
+  if (!nodeRuntimeSource.includes("CODEX_BROWSER_USE_NODE_PATH")) {
+    fail(`Expected resources/node to honor CODEX_BROWSER_USE_NODE_PATH: ${nodeRuntimePath}`);
+  }
+  if (!nodeRuntimeSource.includes("codex-primary-runtime")) {
+    fail(`Expected resources/node to resolve the primary Codex runtime Node: ${nodeRuntimePath}`);
+  }
 
   const nodeReplSource = readFileSync(nodeReplPath, "utf8");
   if (!nodeReplSource.includes("fetchViaCodexDesktop")) {
@@ -305,6 +329,12 @@ function verifyBundledPlugins(resourcesDir) {
   }
   if (!nodeReplSource.includes("CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET")) {
     fail(`Expected Linux node_repl to use CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET: ${nodeReplPath}`);
+  }
+  if (!nodeReplSource.includes("systemctl") || !nodeReplSource.includes("show-environment")) {
+    fail(`Expected Linux node_repl to recover desktop session variables from systemd user environment: ${nodeReplPath}`);
+  }
+  if (!nodeReplSource.includes("WAYLAND_DISPLAY") || !nodeReplSource.includes("DBUS_SESSION_BUS_ADDRESS")) {
+    fail(`Expected Linux node_repl to expose desktop session variables to browser plugins: ${nodeReplPath}`);
   }
   if (!nodeReplSource.includes("Linux browser approval bridge unavailable")) {
     fail(`Expected Linux node_repl to expose a clear browser approval bridge failure: ${nodeReplPath}`);
@@ -378,6 +408,25 @@ function verifyBundledPlugins(resourcesDir) {
   }
   if (!chromeClientSource.includes('type:"mouseMoved",x:t.point.x,y:t.point.y,button:"none"')) {
     fail(`Expected Chrome client to dispatch an explicit CDP mouse move before clicking: ${chromeClient}`);
+  }
+
+  const chromeRunningCheckSource = readFileSync(chromeRunningCheck, "utf8");
+  if (!chromeRunningCheckSource.includes("isLinuxExtensionCapableChromeCommand")) {
+    fail(`Expected Chrome running checker to filter Linux Chrome processes that cannot load extensions: ${chromeRunningCheck}`);
+  }
+  if (!chromeRunningCheckSource.includes('"-ww"')) {
+    fail(`Expected Chrome running checker to inspect full Linux Chrome command lines: ${chromeRunningCheck}`);
+  }
+
+  const chromeSkillSource = readFileSync(chromeSkill, "utf8");
+  if (!chromeSkillSource.includes("## Visible Tool Surface")) {
+    fail(`Expected Chrome skill to explain the Node REPL browser-client tool surface: ${chromeSkill}`);
+  }
+  if (!chromeSkillSource.includes("Do not conclude that Chrome DOM/DevTools automation is unavailable")) {
+    fail(`Expected Chrome skill to prevent fallback when Chrome-specific tools are not directly visible: ${chromeSkill}`);
+  }
+  if (!chromeSkillSource.includes("browser.tabs.new()") || !chromeSkillSource.includes("tab.playwright.locator")) {
+    fail(`Expected Chrome skill to document the current Chrome browser API shape: ${chromeSkill}`);
   }
 
   const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));

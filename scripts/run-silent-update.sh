@@ -82,11 +82,15 @@ info "Running installer; log: $LOG_PATH"
 
 find "$STAGING_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'codex-app-*' -printf '%f\n' | sort > "$AFTER_SNAPSHOT"
 
-NEW_INSTALL_NAME="$(comm -13 "$BEFORE_SNAPSHOT" "$AFTER_SNAPSHOT" | tail -n 1)"
+NEW_INSTALL_NAME="$(sed -n 's/^[[:space:]]*Run:[[:space:]]*\(.*\)\/start\.sh[[:space:]]*$/\1/p' "$LOG_PATH" | tail -n 1)"
+if [ -z "$NEW_INSTALL_NAME" ]; then
+    NEW_INSTALL_NAME="$(comm -13 "$BEFORE_SNAPSHOT" "$AFTER_SNAPSHOT" | tail -n 1)"
+    if [ -n "$NEW_INSTALL_NAME" ]; then
+        NEW_INSTALL_NAME="$STAGING_ROOT/$NEW_INSTALL_NAME"
+    fi
+fi
 if [ -z "$NEW_INSTALL_NAME" ]; then
     NEW_INSTALL_NAME="$(find "$STAGING_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'codex-app-*' -printf '%T@ %p\n' | sort -n | tail -n 1 | cut -d' ' -f2-)"
-else
-    NEW_INSTALL_NAME="$STAGING_ROOT/$NEW_INSTALL_NAME"
 fi
 
 [ -n "$NEW_INSTALL_NAME" ] || error "Failed to locate the new staged install under: $STAGING_ROOT"

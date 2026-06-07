@@ -2,7 +2,11 @@
 
 import path from "node:path";
 import { patchBrowserClient } from "./linux-browser-runtime/browser-client-patches.mjs";
-import { patchChromeManifestChecker } from "./linux-browser-runtime/chrome-plugin-patches.mjs";
+import {
+  patchChromeManifestChecker,
+  patchChromeRunningChecker,
+  patchChromeSkill,
+} from "./linux-browser-runtime/chrome-plugin-patches.mjs";
 
 function usage() {
   return "Usage: patch-chrome-plugin.mjs <chrome-plugin-root>";
@@ -19,3 +23,5 @@ patchBrowserClient(path.join(chromeRoot, "scripts", "browser-client.mjs"), {
   includeChromePatches: true,
 });
 patchChromeManifestChecker(path.join(chromeRoot, "scripts", "check-native-host-manifest.js"));
+patchChromeRunningChecker(path.join(chromeRoot, "scripts", "chrome-is-running.js"));
+patchChromeSkill(path.join(chromeRoot, "skills", "control-chrome", "SKILL.md"));

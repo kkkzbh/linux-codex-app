@@ -32,11 +32,22 @@ require_cmd() {
 install_chrome_native_host() {
     local chrome_root="$INSTALL_DIR/resources/plugins/openai-bundled/plugins/chrome"
     local install_manifest="$chrome_root/scripts/installManifest.mjs"
+    local codex_runtime_path="$INSTALL_DIR/resources/codex"
+    local node_runtime_path="$INSTALL_DIR/resources/node"
     local node_repl_path="$INSTALL_DIR/resources/node_repl"
-    local codex_cli_path="${CODEX_CLI_PATH:-}"
 
     if [ ! -f "$install_manifest" ]; then
         warn "Chrome native host installer is missing: $install_manifest"
+        return
+    fi
+
+    if [ ! -x "$codex_runtime_path" ]; then
+        warn "Chrome native host setup skipped because staged codex runtime helper is missing: $codex_runtime_path"
+        return
+    fi
+
+    if [ ! -x "$node_runtime_path" ]; then
+        warn "Chrome native host setup skipped because staged node runtime helper is missing: $node_runtime_path"
         return
     fi
 
@@ -45,26 +56,17 @@ install_chrome_native_host() {
         return
     fi
 
-    if [ -z "$codex_cli_path" ]; then
-        codex_cli_path="$(command -v codex || true)"
-    fi
-    if [ -z "$codex_cli_path" ] && [ -x "$INSTALL_DIR/Codex" ]; then
-        codex_cli_path="$INSTALL_DIR/Codex"
-    fi
-    if [ -z "$codex_cli_path" ]; then
-        warn "Chrome native host setup skipped because the Codex CLI was not found"
-        return
-    fi
-
     CODEX_CHROME_PLUGIN_ROOT="$chrome_root" \
-    CODEX_CHROME_CODEX_CLI_PATH="$codex_cli_path" \
+    CODEX_CHROME_CODEX_CLI_PATH="$codex_runtime_path" \
+    CODEX_CHROME_NODE_PATH="$node_runtime_path" \
     CODEX_CHROME_NODE_REPL_PATH="$node_repl_path" \
     node --input-type=module <<'EOF'
 const pluginRoot = process.env.CODEX_CHROME_PLUGIN_ROOT;
 const codexCliPath = process.env.CODEX_CHROME_CODEX_CLI_PATH;
+const nodePath = process.env.CODEX_CHROME_NODE_PATH;
 const nodeReplPath = process.env.CODEX_CHROME_NODE_REPL_PATH;
 
-if (!pluginRoot || !codexCliPath || !nodeReplPath) {
+if (!pluginRoot || !codexCliPath || !nodePath || !nodeReplPath) {
   throw new Error("Missing Chrome native host activation environment");
 }
 
@@ -72,7 +74,7 @@ const { install } = await import(`${pluginRoot}/scripts/installManifest.mjs`);
 await install({
   appServerRuntimePaths: {
     codexCliPath,
-    nodePath: process.execPath,
+    nodePath,
     nodeReplPath,
   },
 });

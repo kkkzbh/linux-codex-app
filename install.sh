@@ -423,6 +423,73 @@ export_app_icon() {
 }
 
 # ---- Install app.asar ----
+install_runtime_helper_wrappers() {
+    cat > "$INSTALL_DIR/resources/codex" <<'SCRIPT'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SELF="$(readlink -f "$0" 2>/dev/null || printf '%s\n' "$0")"
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEX_STANDALONE_CLI_PATH="${CODEX_STANDALONE_CLI_PATH:-$CODEX_HOME_DIR/packages/standalone/current/codex}"
+
+exec_if_distinct() {
+    local candidate="$1"
+    shift
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        local resolved
+        resolved="$(readlink -f "$candidate" 2>/dev/null || printf '%s\n' "$candidate")"
+        if [ "$resolved" != "$SELF" ]; then
+            exec "$candidate" "$@"
+        fi
+    fi
+}
+
+exec_if_distinct "${CODEX_CLI_PATH:-}" "$@"
+exec_if_distinct "$CODEX_STANDALONE_CLI_PATH" "$@"
+
+if command -v codex >/dev/null 2>&1; then
+    candidate="$(command -v codex)"
+    exec_if_distinct "$candidate" "$@"
+fi
+
+echo "Error: official standalone Codex CLI not found. Install with: curl -fsSL https://chatgpt.com/codex/install.sh | sh" >&2
+exit 1
+SCRIPT
+
+    cat > "$INSTALL_DIR/resources/node" <<'SCRIPT'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SELF="$(readlink -f "$0" 2>/dev/null || printf '%s\n' "$0")"
+PRIMARY_RUNTIME_NODE="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+
+exec_if_distinct() {
+    local candidate="$1"
+    shift
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        local resolved
+        resolved="$(readlink -f "$candidate" 2>/dev/null || printf '%s\n' "$candidate")"
+        if [ "$resolved" != "$SELF" ]; then
+            exec "$candidate" "$@"
+        fi
+    fi
+}
+
+exec_if_distinct "${CODEX_BROWSER_USE_NODE_PATH:-}" "$@"
+exec_if_distinct "$PRIMARY_RUNTIME_NODE" "$@"
+
+if command -v node >/dev/null 2>&1; then
+    candidate="$(command -v node)"
+    exec_if_distinct "$candidate" "$@"
+fi
+
+echo "Error: Node.js runtime not found for Codex browser plugins." >&2
+exit 1
+SCRIPT
+
+    chmod +x "$INSTALL_DIR/resources/codex" "$INSTALL_DIR/resources/node"
+}
+
 install_app() {
     cp "$WORK_DIR/app.asar" "$INSTALL_DIR/resources/"
     if [ -d "$WORK_DIR/app.asar.unpacked" ]; then
@@ -433,6 +500,7 @@ install_app() {
     fi
     cp "$LINUX_NODE_REPL_SOURCE" "$INSTALL_DIR/resources/node_repl"
     chmod +x "$INSTALL_DIR/resources/node_repl"
+    install_runtime_helper_wrappers
     info "app.asar installed"
 }
 

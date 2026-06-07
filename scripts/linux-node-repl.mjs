@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Buffer } from "node:buffer";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -44,7 +45,19 @@ const tools = [
   },
 ];
 
+const DESKTOP_ENV_KEYS = [
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "XAUTHORITY",
+  "CODEX_BROWSER_BACKENDS_REGISTRY",
+  "CODEX_DESKTOP_AUTH_FETCH_SOCKET",
+  "CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET",
+];
+
 let currentExec = null;
+let nodeReplEnv = createNodeReplEnv();
 let kernel = createKernel();
 let jsQueue = Promise.resolve();
 
@@ -58,6 +71,75 @@ function sendResult(id, result) {
 
 function sendError(id, code, message, data) {
   send({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
+}
+
+function parseEnvironmentEntries(raw) {
+  const env = {};
+  for (const entry of raw.split(/\0|\r?\n/)) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+
+    const key = entry.slice(0, separator);
+    const value = entry.slice(separator + 1);
+    if (value.trim()) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
+function mergeMissingEnv(target, source, keys = Object.keys(source)) {
+  for (const key of keys) {
+    if (target[key]?.trim()) {
+      continue;
+    }
+
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) {
+      target[key] = value;
+      process.env[key] = value;
+    }
+  }
+}
+
+function readParentProcessEnv() {
+  if (process.platform !== "linux" || !process.ppid) {
+    return {};
+  }
+
+  try {
+    return parseEnvironmentEntries(readFileSync(`/proc/${process.ppid}/environ`, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function readSystemdUserEnv() {
+  if (process.platform !== "linux") {
+    return {};
+  }
+
+  try {
+    return parseEnvironmentEntries(
+      execFileSync("systemctl", ["--user", "show-environment"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 1_000,
+      }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function createNodeReplEnv() {
+  const env = { ...process.env };
+  mergeMissingEnv(env, readSystemdUserEnv(), DESKTOP_ENV_KEYS);
+  mergeMissingEnv(env, readParentProcessEnv(), DESKTOP_ENV_KEYS);
+  return env;
 }
 
 function createKernel() {
@@ -85,6 +167,7 @@ function createKernel() {
 
   const nodeRepl = {
     cwd: process.cwd(),
+    env: nodeReplEnv,
     homeDir: homedir(),
     tmpDir: tmpdir(),
     get requestMeta() {
@@ -145,7 +228,7 @@ function createProcessShim() {
   const listeners = new Map();
 
   return {
-    env: process.env,
+    env: nodeReplEnv,
     version: process.version,
     versions: process.versions,
     pid: process.pid,
@@ -456,7 +539,7 @@ async function requestUnixJson(socketPath, payload, options = {}) {
 }
 
 function getDesktopSocketEnv(name) {
-  const direct = process.env[name];
+  const direct = nodeReplEnv[name] ?? process.env[name];
   if (direct && direct.trim()) {
     return direct;
   }
@@ -477,6 +560,7 @@ function getDesktopSocketEnv(name) {
       }
       const value = entry.slice(separator + 1);
       if (value.trim()) {
+        nodeReplEnv[name] = value;
         process.env[name] = value;
         return value;
       }
@@ -557,6 +641,7 @@ function buildToolResult(state) {
 }
 
 function resetKernel() {
+  nodeReplEnv = createNodeReplEnv();
   kernel = createKernel();
   return { content: [{ type: "text", text: "js execution reset" }] };
 }

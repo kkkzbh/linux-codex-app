@@ -129,8 +129,10 @@ def test_open_app_can_reuse_and_activate_existing_matching_window():
     module.subprocess.Popen = fake_popen
 
     def fake_list_windows(params):
-        assert params == {"app": "google-chrome"}
-        return {"windows": [existing_window]}
+        assert params["app"] in ("google-chrome", "google-chrome.desktop", "Google Chrome")
+        if params["app"] == "google-chrome":
+            return {"windows": [existing_window]}
+        return {"windows": []}
 
     activated_calls = []
 
@@ -148,6 +150,51 @@ def test_open_app_can_reuse_and_activate_existing_matching_window():
     assert result["target_window"] == existing_window
     assert result["activated"] == {"id": "chrome-window", "active": True}
     assert activated_calls == [{"window_id": "chrome-window", "wait_ms": 300}]
+
+
+def test_open_app_reuse_matches_exec_name_when_display_name_differs():
+    module = load_broker_module()
+    broker = module.Broker()
+    entry = {
+        "desktop_id": "remote-viewer.desktop",
+        "path": "/usr/share/applications/remote-viewer.desktop",
+        "name": "Remote Viewer",
+        "generic_name": "",
+        "startup_wm_class": "",
+        "exec": "remote-viewer %u",
+        "hidden": False,
+    }
+    existing_window = {
+        "id": "remote-viewer-window",
+        "title": "Windows 11 VM Installer",
+        "app": "remote-viewer",
+        "pid": 200,
+        "active": False,
+        "minimized": False,
+    }
+
+    module.find_desktop_entries = lambda: [entry]
+
+    def fake_popen(*args, **kwargs):
+        raise AssertionError("reuse_existing should match the Exec basename before launching")
+
+    module.subprocess.Popen = fake_popen
+
+    def fake_list_windows(params):
+        assert params["app"] in ("remote-viewer", "remote-viewer.desktop", "Remote Viewer")
+        if params["app"] == "remote-viewer":
+            return {"windows": [existing_window]}
+        return {"windows": []}
+
+    broker.list_windows = fake_list_windows
+    broker.activate_window = lambda params: {"window": {"id": params["window_id"], "active": True}}
+
+    result = broker.open_app({"query": "remote-viewer", "reuse_existing": True, "activate": True})
+
+    assert result["launched"] is False
+    assert result["reused_existing"] is True
+    assert result["target_window"] == existing_window
+    assert result["activated"] == {"id": "remote-viewer-window", "active": True}
 
 
 def test_open_app_can_reuse_tray_item_when_no_window_exists():
@@ -514,6 +561,7 @@ def main():
     test_deduplicate_desktop_entries_keeps_first_xdg_priority_entry()
     test_desktop_entry_selection_prefers_named_app_over_chrome_web_app_prefix()
     test_open_app_can_reuse_and_activate_existing_matching_window()
+    test_open_app_reuse_matches_exec_name_when_display_name_differs()
     test_open_app_can_reuse_tray_item_when_no_window_exists()
     test_list_windows_defaults_to_token_lean_summary_with_limit()
     test_list_windows_full_detail_preserves_raw_kwin_fields()

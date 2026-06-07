@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -186,6 +186,96 @@ async function withRepl(env, fn) {
   }
 }
 
+async function testNodeReplExposesEnvForBrowserClient() {
+  await withRepl(
+    {
+      BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1",
+      CODEX_BROWSER_BACKENDS_REGISTRY: "/tmp/codex-browser-backends-test.json",
+    },
+    async (repl) => {
+      const result = await repl.request("tools/call", {
+        name: "js",
+        arguments: {
+          code: `return {
+            disableAmbientNetwork: nodeRepl.env?.BROWSER_USE_DISABLE_AMBIENT_NETWORK,
+            registry: nodeRepl.env?.CODEX_BROWSER_BACKENDS_REGISTRY,
+          };`,
+        },
+      });
+      const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(result.isError, undefined, text);
+      assert.deepEqual(JSON.parse(text), {
+        disableAmbientNetwork: "1",
+        registry: "/tmp/codex-browser-backends-test.json",
+      });
+    },
+  );
+}
+
+async function testNodeReplRecoversDesktopEnvFromSystemdUserEnvironment() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-node-repl-env-test-"));
+  const binDir = path.join(tempDir, "bin");
+  const systemctlPath = path.join(binDir, "systemctl");
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    systemctlPath,
+    `#!/usr/bin/env bash
+if [ "$1" = "--user" ] && [ "$2" = "show-environment" ]; then
+  cat <<'EOF'
+DISPLAY=:77
+WAYLAND_DISPLAY=wayland-test
+XDG_RUNTIME_DIR=/run/user/777
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/777/bus
+XAUTHORITY=/run/user/777/xauth_test
+EOF
+  exit 0
+fi
+exit 1
+`,
+  );
+  chmodSync(systemctlPath, 0o755);
+
+  try {
+    await withRepl(
+      {
+        PATH: `${binDir}:${process.env.PATH}`,
+        DISPLAY: "",
+        WAYLAND_DISPLAY: "",
+        XDG_RUNTIME_DIR: "",
+        DBUS_SESSION_BUS_ADDRESS: "",
+        XAUTHORITY: "",
+      },
+      async (repl) => {
+        const result = await repl.request("tools/call", {
+          name: "js",
+          arguments: {
+            code: `return {
+              nodeReplDisplay: nodeRepl.env?.DISPLAY,
+              processDisplay: process.env?.DISPLAY,
+              wayland: nodeRepl.env?.WAYLAND_DISPLAY,
+              xdg: nodeRepl.env?.XDG_RUNTIME_DIR,
+              dbus: nodeRepl.env?.DBUS_SESSION_BUS_ADDRESS,
+              xauthority: nodeRepl.env?.XAUTHORITY,
+            };`,
+          },
+        });
+        const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+        assert.equal(result.isError, undefined, text);
+        assert.deepEqual(JSON.parse(text), {
+          nodeReplDisplay: ":77",
+          processDisplay: ":77",
+          wayland: "wayland-test",
+          xdg: "/run/user/777",
+          dbus: "unix:path=/run/user/777/bus",
+          xauthority: "/run/user/777/xauth_test",
+        });
+      },
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testLocalOriginAcceptsWithoutClientApproval() {
   await withRepl({}, async (repl) => {
     const result = await callCreateElicitation(repl, makeBrowserApprovalRequest("http://127.0.0.1:5173"));
@@ -305,6 +395,8 @@ async function testPublicOriginWithoutDesktopBridgeFailsClosed() {
   });
 }
 
+await testNodeReplExposesEnvForBrowserClient();
+await testNodeReplRecoversDesktopEnvFromSystemdUserEnvironment();
 await testLocalOriginAcceptsWithoutClientApproval();
 await testDesktopApprovalAccepts();
 await testDesktopApprovalDeclines();

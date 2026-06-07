@@ -1,5 +1,7 @@
 import { avatarOverlayTransparencyFeature } from "./avatar-overlay-transparency.mjs";
 import { browserChromeFeature } from "./browser-chrome/index.mjs";
+import { computerUseAvailabilityFeature } from "./computer-use-availability.mjs";
+import { computerUseProviderFeature } from "./computer-use-provider.mjs";
 import { generatedOutputArtifactsFeature } from "./generated-output-artifacts.mjs";
 import { markdownLocalMediaFeature } from "./markdown-local-media.mjs";
 import { nativeTitlebarFeature } from "./native-titlebar.mjs";
@@ -20,6 +22,8 @@ export const linuxPatchFeatures = [
   settingsSidebarSurfaceFeature,
   avatarOverlayTransparencyFeature,
   browserChromeFeature,
+  computerUseAvailabilityFeature,
+  computerUseProviderFeature,
 ];
 
 assertLinuxPatchContracts(linuxPatchFeatures);

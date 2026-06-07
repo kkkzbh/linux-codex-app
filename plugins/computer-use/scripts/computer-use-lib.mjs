@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +7,20 @@ const DEFAULT_BROKER_TIMEOUT_MS = 120_000;
 const DEFAULT_INPUT_TIMEOUT_MS = 180_000;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const brokerScript = path.join(scriptDir, "computer-use-broker.py");
+const DESKTOP_SESSION_ENV_KEYS = [
+  "DBUS_SESSION_BUS_ADDRESS",
+  "DESKTOP_SESSION",
+  "DISPLAY",
+  "KDE_FULL_SESSION",
+  "KDE_SESSION_VERSION",
+  "QT_QPA_PLATFORM",
+  "WAYLAND_DISPLAY",
+  "XDG_CURRENT_DESKTOP",
+  "XDG_DATA_DIRS",
+  "XDG_RUNTIME_DIR",
+  "XDG_SESSION_DESKTOP",
+  "XDG_SESSION_TYPE",
+];
 
 const BUTTONS = ["left", "middle", "right"];
 const TYPE_METHODS = ["auto", "clipboard", "keysyms"];
@@ -363,7 +378,7 @@ export const COMPUTER_USE_TOOLS = [
 
 export function createComputerUseController(deps = {}) {
   const context = {
-    env: deps.env ?? process.env,
+    env: createComputerUseEnv(deps.env ?? process.env, deps),
     cwd: deps.cwd ?? process.cwd(),
     spawnProcess: deps.spawnProcess ?? spawn,
     python: deps.python ?? process.env.CODEX_COMPUTER_USE_PYTHON ?? "python3",
@@ -385,6 +400,81 @@ export function createComputerUseController(deps = {}) {
       broker.stop();
     },
   };
+}
+
+export function createComputerUseEnv(baseEnv = process.env, deps = {}) {
+  const env = { ...baseEnv };
+  mergeMissingDesktopEnv(env, deps.parentEnv ?? readParentProcessEnv(process.ppid));
+  ensureDefaultUserBusEnv(env);
+  mergeMissingDesktopEnv(env, deps.systemdUserEnv ?? readSystemdUserEnvironment(env));
+  ensureDefaultUserBusEnv(env);
+  return env;
+}
+
+function ensureDefaultUserBusEnv(env) {
+  if (!env.XDG_RUNTIME_DIR && typeof process.getuid === "function") {
+    env.XDG_RUNTIME_DIR = `/run/user/${process.getuid()}`;
+  }
+  if (env.XDG_RUNTIME_DIR && !env.DBUS_SESSION_BUS_ADDRESS) {
+    env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${env.XDG_RUNTIME_DIR}/bus`;
+  }
+}
+
+function mergeMissingDesktopEnv(target, source) {
+  if (source == null || typeof source !== "object") {
+    return;
+  }
+  for (const key of DESKTOP_SESSION_ENV_KEYS) {
+    if ((target[key] == null || target[key] === "") && typeof source[key] === "string" && source[key] !== "") {
+      target[key] = source[key];
+    }
+  }
+}
+
+function readParentProcessEnv(ppid) {
+  if (!Number.isInteger(ppid) || ppid <= 1) {
+    return {};
+  }
+  try {
+    return parseNullSeparatedEnv(readFileSync(`/proc/${ppid}/environ`));
+  } catch {
+    return {};
+  }
+}
+
+function readSystemdUserEnvironment(env) {
+  try {
+    return parseLineEnv(execFileSync("systemctl", ["--user", "show-environment"], {
+      encoding: "utf8",
+      env,
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }));
+  } catch {
+    return {};
+  }
+}
+
+function parseNullSeparatedEnv(buffer) {
+  const env = {};
+  for (const entry of buffer.toString("utf8").split("\0")) {
+    const index = entry.indexOf("=");
+    if (index > 0) {
+      env[entry.slice(0, index)] = entry.slice(index + 1);
+    }
+  }
+  return env;
+}
+
+function parseLineEnv(text) {
+  const env = {};
+  for (const line of String(text).split(/\r?\n/)) {
+    const index = line.indexOf("=");
+    if (index > 0) {
+      env[line.slice(0, index)] = line.slice(index + 1);
+    }
+  }
+  return env;
 }
 
 class BrokerClient {

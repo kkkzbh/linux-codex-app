@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createComputerUseEnv } from "../plugins/computer-use/scripts/computer-use-lib.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const installerRoot = path.dirname(scriptDir);
@@ -73,6 +74,47 @@ async function main() {
   assert.equal(mcp.mcp_servers, undefined);
   assert.equal(mcp.mcpServers, undefined);
 
+  const hydratedEnv = createComputerUseEnv(
+    { PATH: "/usr/bin", DBUS_SESSION_BUS_ADDRESS: "" },
+    {
+      parentEnv: {
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+        XDG_RUNTIME_DIR: "/run/user/1000",
+        WAYLAND_DISPLAY: "wayland-0",
+        DISPLAY: ":0",
+        XDG_CURRENT_DESKTOP: "KDE",
+        KDE_FULL_SESSION: "true",
+      },
+      systemdUserEnv: {
+        DISPLAY: ":should-not-override-parent",
+      },
+    },
+  );
+  assert.equal(hydratedEnv.PATH, "/usr/bin");
+  assert.equal(hydratedEnv.DBUS_SESSION_BUS_ADDRESS, "unix:path=/run/user/1000/bus");
+  assert.equal(hydratedEnv.XDG_RUNTIME_DIR, "/run/user/1000");
+  assert.equal(hydratedEnv.WAYLAND_DISPLAY, "wayland-0");
+  assert.equal(hydratedEnv.DISPLAY, ":0");
+  assert.equal(hydratedEnv.XDG_CURRENT_DESKTOP, "KDE");
+  assert.equal(hydratedEnv.KDE_FULL_SESSION, "true");
+
+  const systemdHydratedEnv = createComputerUseEnv(
+    { PATH: "/usr/bin" },
+    {
+      parentEnv: {},
+      systemdUserEnv: {
+        DISPLAY: ":0",
+        WAYLAND_DISPLAY: "wayland-0",
+        XDG_CURRENT_DESKTOP: "KDE",
+      },
+    },
+  );
+  const runtimeDir = `/run/user/${process.getuid()}`;
+  assert.equal(systemdHydratedEnv.DBUS_SESSION_BUS_ADDRESS, `unix:path=${runtimeDir}/bus`);
+  assert.equal(systemdHydratedEnv.XDG_RUNTIME_DIR, runtimeDir);
+  assert.equal(systemdHydratedEnv.DISPLAY, ":0");
+  assert.equal(systemdHydratedEnv.WAYLAND_DISPLAY, "wayland-0");
+
   const brokerSource = readFileSync(path.join(pluginRoot, "scripts", "computer-use-broker.py"), "utf8");
   assert.match(brokerSource, /org\.kde\.KWin\.ScreenShot2/);
   assert.match(brokerSource, /org\.freedesktop\.host\.portal\.Registry/);
@@ -107,6 +149,8 @@ async function main() {
     const init = await client.request("initialize", { protocolVersion: "2025-06-18" });
     assert.equal(init.result.serverInfo.name, "computer-use");
     assert.match(init.result.instructions, /KDE Wayland/);
+    assert.match(init.result.instructions, /app-specific plugin first/);
+    assert.match(init.result.instructions, /fallback/);
     assert.match(init.result.instructions, /foreground/);
     assert.match(init.result.instructions, /KWin ScreenShot2/);
     assert.match(init.result.instructions, /RemoteDesktop/);

@@ -53,6 +53,22 @@ export function createLinuxPatchContext(extractedAppDir) {
     /^settings-page-[^.]+\.js$/,
     "webview settings page",
   );
+  const webviewComputerUseSettingsPath = findAssetFile(
+    webviewAssetsDir,
+    /^computer-use-settings-[^.]+\.js$/,
+    "webview computer use settings",
+  );
+  const webviewComputerUseProviderSettingsPath = findAssetFileContaining(
+    webviewAssetsDir,
+    /^browser-use-settings-[^.]+\.js$/,
+    "r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)",
+    "webview computer use provider settings",
+  );
+  const webviewPluginFeatureGatePath = findAssetFile(
+    webviewAssetsDir,
+    /^use-is-plugins-enabled-[^.]+\.js$/,
+    "webview plugin feature gate",
+  );
   const webviewAppShellPath = findAssetFile(
     webviewAssetsDir,
     /^app-shell-[^.]+\.js$/,
@@ -121,6 +137,9 @@ export function createLinuxPatchContext(extractedAppDir) {
     webviewCollaborationModePath,
     webviewComposerPath,
     webviewSettingsPagePath,
+    webviewComputerUseSettingsPath,
+    webviewComputerUseProviderSettingsPath,
+    webviewPluginFeatureGatePath,
     webviewAppShellPath,
     webviewFollowUpPath,
     webviewLocalConversationThreadPath,
@@ -173,6 +192,24 @@ export function createLinuxPatchContext(extractedAppDir) {
     },
     writeWebviewSettingsPageSource(source) {
       writeFileSync(webviewSettingsPagePath, source);
+    },
+    readWebviewComputerUseSettingsSource() {
+      return readFileSync(webviewComputerUseSettingsPath, "utf8");
+    },
+    writeWebviewComputerUseSettingsSource(source) {
+      writeFileSync(webviewComputerUseSettingsPath, source);
+    },
+    readWebviewComputerUseProviderSettingsSource() {
+      return readFileSync(webviewComputerUseProviderSettingsPath, "utf8");
+    },
+    writeWebviewComputerUseProviderSettingsSource(source) {
+      writeFileSync(webviewComputerUseProviderSettingsPath, source);
+    },
+    readWebviewPluginFeatureGateSource() {
+      return readFileSync(webviewPluginFeatureGatePath, "utf8");
+    },
+    writeWebviewPluginFeatureGateSource(source) {
+      writeFileSync(webviewPluginFeatureGatePath, source);
     },
     readWebviewAppShellSource() {
       return readFileSync(webviewAppShellPath, "utf8");
@@ -249,6 +286,12 @@ export function createLinuxPatchContext(extractedAppDir) {
         webviewModelSettings: readFileSync(webviewCollaborationModePath, "utf8"),
         webviewComposer: readFileSync(webviewComposerPath, "utf8"),
         webviewSettingsPage: readFileSync(webviewSettingsPagePath, "utf8"),
+        webviewComputerUseSettings: readFileSync(webviewComputerUseSettingsPath, "utf8"),
+        webviewComputerUseProviderSettings: readFileSync(
+          webviewComputerUseProviderSettingsPath,
+          "utf8",
+        ),
+        webviewPluginFeatureGate: readFileSync(webviewPluginFeatureGatePath, "utf8"),
         webviewAppShell: readFileSync(webviewAppShellPath, "utf8"),
         webviewFollowUp: readFileSync(webviewFollowUpPath, "utf8"),
         webviewLocalConversationThread: readFileSync(webviewLocalConversationThreadPath, "utf8"),
@@ -282,6 +325,12 @@ export function createLinuxPatchContext(extractedAppDir) {
       writeFileSync(webviewCollaborationModePath, sources.webviewModelSettings);
       writeFileSync(webviewComposerPath, sources.webviewComposer);
       writeFileSync(webviewSettingsPagePath, sources.webviewSettingsPage);
+      writeFileSync(webviewComputerUseSettingsPath, sources.webviewComputerUseSettings);
+      writeFileSync(
+        webviewComputerUseProviderSettingsPath,
+        sources.webviewComputerUseProviderSettings,
+      );
+      writeFileSync(webviewPluginFeatureGatePath, sources.webviewPluginFeatureGate);
       writeFileSync(webviewAppShellPath, sources.webviewAppShell);
       writeFileSync(webviewFollowUpPath, sources.webviewFollowUp);
       writeFileSync(webviewLocalConversationThreadPath, sources.webviewLocalConversationThread);
@@ -316,6 +365,9 @@ export function createLinuxPatchContext(extractedAppDir) {
       this.verifyJavaScript(webviewCollaborationModePath);
       this.verifyJavaScript(webviewComposerPath);
       this.verifyJavaScript(webviewSettingsPagePath);
+      this.verifyJavaScript(webviewComputerUseSettingsPath);
+      this.verifyJavaScript(webviewComputerUseProviderSettingsPath);
+      this.verifyJavaScript(webviewPluginFeatureGatePath);
       this.verifyJavaScript(webviewAppShellPath);
       this.verifyJavaScript(webviewFollowUpPath);
       this.verifyJavaScript(webviewLocalConversationThreadPath);

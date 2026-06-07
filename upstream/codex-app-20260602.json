@@ -3,7 +3,7 @@
   "id": "codex-app-20260602",
   "appVersion": "26.527.60818",
   "appBuildNumber": "3437",
-  "rpmVersion": "0.1.1",
+  "rpmVersion": "0.1.2",
   "rpmRelease": "1.codex26_527_60818",
   "targetArch": "x86_64",
   "dmg": {

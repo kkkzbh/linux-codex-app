@@ -95,6 +95,42 @@ export const FEATURE_MARKERS = {
       "function xe(e,{buildFlavor:n=t.O.resolve(),env:r=f.default.env,platform:i=f.default.platform}={}){let a=i===`win32`&&r.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...e,computerUse:!0,computerUseNodeRepl:!0}:e,o=n===t.O.Dev?Se(r):null;return o==null?a:{...a,...o}}",
     ],
   },
+  "computer-use-provider": {
+    requiredMarkers: {
+      webviewComputerUseSettings: [
+        "function codexLinuxComputerUseProvider()",
+        "p=X([...d.availablePlugins,...d.installedPlugins],we,f)",
+        "let m=p??codexLinuxComputerUseProvider(),h;",
+      ],
+      webviewComputerUseProviderSettings: [
+        "kde-computer-use",
+        "plugin.name===`kde-computer-use`",
+        "marketplaceName===`local`",
+      ],
+    },
+    forbiddenMarkers: {
+      webviewComputerUseSettings: [
+        "p=X(d.availablePlugins,we,f)",
+      ],
+      webviewComputerUseProviderSettings: [
+        "function St(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=l(le());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ee(n,e.marketplacePath))??null}",
+      ],
+    },
+  },
+  "computer-use-availability": {
+    requiredMarkers: {
+      webviewPluginFeatureGate: [
+        "e===`macOS`||e===`windows`||e===`linux`",
+        "isComputerUseGateEnabled:f||c===`linux`",
+      ],
+    },
+    forbiddenMarkers: {
+      webviewPluginFeatureGate: [
+        "function d(e){return e===`macOS`||e===`windows`}",
+        "isComputerUseGateEnabled:f,isHostCompatiblePlatform:d(c),isPlatformLoading:o,windowType:`electron`",
+      ],
+    },
+  },
   "browser-backend-registry": {
     requiredMarkers: [
       "codexLinuxRegisterBrowserBackend",

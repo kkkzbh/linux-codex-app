@@ -5,7 +5,7 @@ description: Use owner-authorized KDE Wayland foreground desktop observation and
 
 # Computer Use
 
-Use these tools when the user wants Codex to operate visible KDE Wayland desktop apps.
+Use these tools when the user wants Codex to operate visible KDE Wayland desktop apps and no more specific app plugin is suitable. If a target app has its own Codex plugin or tool surface, use that app-specific plugin first and treat Computer Use as the fallback for gaps, unsupported actions, or visible UI state that the app plugin cannot reach.
 
 Start an operation with `computer_begin_round`, then call `computer_observe`, `computer_list_desktops`, or `computer_list_windows`. Input tools auto-start a round when needed, but an explicit begin makes the cursor glow and desktop restore lifecycle visible. Use `computer_list_tray_items` when the target app is hidden to the KDE system tray and does not currently have a KWin window. Screenshot capture defaults to `backend: "direct"` through KWin ScreenShot2 authorization from the activated Codex desktop entry. Foreground input tools default to `backend: "portal"` through KDE RemoteDesktop, using the installer-managed portal pre-authorization so normal operation should not show KDE portal dialogs.
 

@@ -451,7 +451,7 @@ async function testDefaultDetachedEnvDoesNotRePolluteManagedKitty() {
       cwd: tempDir,
       stateRoot,
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         CODEX_KITTY_RESTORE_FOCUS: "0",
         CODEX_KITTY_BIN: fakeKitty,
         CODEX_KITTEN_BIN: "kitten-test",
@@ -1475,7 +1475,7 @@ function testKittyWindowAccessInstaller() {
     const run = spawnSync("bash", [kittyWindowAccessScript], {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         HOME: home,
         XDG_DATA_HOME: dataHome,
         XDG_DATA_DIRS: dataDir,
@@ -1490,7 +1490,7 @@ function testKittyWindowAccessInstaller() {
     const rerun = spawnSync("bash", [kittyWindowAccessScript], {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         HOME: home,
         XDG_DATA_HOME: dataHome,
         XDG_DATA_DIRS: dataDir,
@@ -1529,7 +1529,7 @@ function testKittyWindowAccessInstaller() {
     const launched = spawnSync(wrapperPath, ["--class", "demo"], {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         CODEX_KITTY_STATE_DIR: stateRoot,
         FAKE_KITTY_LOG: fakeLog,
       },
@@ -1550,7 +1550,7 @@ function testKittyWindowAccessInstaller() {
     const bypassed = spawnSync(wrapperPath, ["--listen-on", "unix:/tmp/user.sock"], {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         CODEX_KITTY_STATE_DIR: path.join(tempDir, "state-bypass"),
         FAKE_KITTY_LOG: fakeLog,
       },
@@ -1585,7 +1585,7 @@ function testKittyWindowAccessWrapperSkip() {
     const run = spawnSync("bash", [kittyWindowAccessScript], {
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...withoutCodexKittyEnv(),
         HOME: home,
         XDG_DATA_HOME: dataHome,
         XDG_DATA_DIRS: dataDir,
@@ -1608,6 +1608,12 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function withoutCodexKittyEnv(env = process.env) {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !key.startsWith("CODEX_KITTY_")),
+  );
+}
+
 function testPluginMetadata() {
   const manifest = JSON.parse(readFileSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
   assert.equal(manifest.name, "kitty");
@@ -1623,10 +1629,6 @@ function testPluginMetadata() {
   assert.equal(mcpManifest.kitty.command, "node");
   assert.deepEqual(mcpManifest.kitty.args, ["./scripts/kitty-mcp.mjs"]);
   assert.equal(mcpManifest.kitty.cwd, ".");
-
-  if (!existsSync(pluginValidator)) {
-    return;
-  }
 
   const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
   const validationOutput = validation.stdout + validation.stderr;

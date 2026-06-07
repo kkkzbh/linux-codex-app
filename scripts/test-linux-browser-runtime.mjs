@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -430,7 +432,15 @@ function copyAndPatchChromeFixture(tempDir) {
   }
 
   const clientPath = path.join(chromeRoot, "scripts", "browser-client.mjs");
-  if (readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY")) {
+  const runningCheckPath = path.join(chromeRoot, "scripts", "chrome-is-running.js");
+  const manifestCheckPath = path.join(chromeRoot, "scripts", "check-native-host-manifest.js");
+  const skillPath = path.join(chromeRoot, "skills", "control-chrome", "SKILL.md");
+  if (
+    readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY") &&
+    readFileSync(runningCheckPath, "utf8").includes("isLinuxExtensionCapableChromeCommand") &&
+    readFileSync(manifestCheckPath, "utf8").includes('process.platform === "linux"') &&
+    readFileSync(skillPath, "utf8").includes("Visible Tool Surface")
+  ) {
     return chromeRoot;
   }
 
@@ -484,6 +494,81 @@ async function testPatchedBrowserClientStaticMarkers() {
     assert.equal(clientSource.includes("browser backend registry type mismatch"), true);
     assert.equal(clientSource.includes("browser backend info request timed out"), true);
     assert.equal(clientSource.includes('type:"mouseMoved",x:t.point.x,y:t.point.y,button:"none"'), true);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testPatchedChromeRunningCheckerIgnoresExtensionlessLinuxChrome() {
+  const tempDir = makeTempDir("codex-chrome-running-");
+  try {
+    const chromeRoot = copyAndPatchChromeFixture(tempDir);
+    const scriptPath = path.join(chromeRoot, "scripts", "chrome-is-running.js");
+    const scriptSource = readFileSync(scriptPath, "utf8");
+    assert.equal(scriptSource.includes("isLinuxExtensionCapableChromeCommand"), true);
+    assert.equal(scriptSource.includes('"-ww"'), true);
+
+    const binDir = path.join(tempDir, "bin");
+    const psPath = path.join(binDir, "ps");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      psPath,
+      `#!/usr/bin/env bash
+cat <<'EOF'
+  4901 /opt/google/chrome/chrome --headless=new --disable-extensions --user-data-dir=/tmp/puppeteer_dev_chrome_profile-Cv6IpR about:blank
+  5100 /opt/google/chrome/chrome --type=zygote --user-data-dir=/tmp/puppeteer_dev_chrome_profile-Cv6IpR
+EOF
+`,
+    );
+    chmodSync(psPath, 0o755);
+
+    const extensionless = spawnSync(process.execPath, [scriptPath, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      stdio: "pipe",
+    });
+    assert.equal(extensionless.status, 0, extensionless.stderr);
+    assert.equal(JSON.parse(extensionless.stdout).running, false);
+
+    writeFileSync(
+      psPath,
+      `#!/usr/bin/env bash
+cat <<'EOF'
+  6001 /opt/google/chrome/chrome --profile-directory=Profile 5
+  6010 /opt/google/chrome/chrome --type=renderer --profile-directory=Profile 5
+EOF
+`,
+    );
+
+    const normal = spawnSync(process.execPath, [scriptPath, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      stdio: "pipe",
+    });
+    assert.equal(normal.status, 0, normal.stderr);
+    const normalResult = JSON.parse(normal.stdout);
+    assert.equal(normalResult.running, true);
+    assert.deepEqual(
+      normalResult.processes.map((chromeProcess) => chromeProcess.pid),
+      [6001],
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testPatchedChromeSkillMakesNodeReplToolSurfaceExplicit() {
+  const tempDir = makeTempDir("codex-chrome-skill-guidance-");
+  try {
+    const chromeRoot = copyAndPatchChromeFixture(tempDir);
+    const skillSource = readFileSync(path.join(chromeRoot, "skills", "control-chrome", "SKILL.md"), "utf8");
+    assert.equal(skillSource.includes("## Visible Tool Surface"), true);
+    assert.equal(skillSource.includes("Do not conclude that Chrome DOM/DevTools automation is unavailable"), true);
+    assert.equal(skillSource.includes("Computer Use tools is not evidence"), true);
+    assert.equal(skillSource.includes("browser.tabs.new()"), true);
+    assert.equal(skillSource.includes("not `browser.tabs.create()`"), true);
+    assert.equal(skillSource.includes("tab.playwright.locator"), true);
+    assert.equal(skillSource.includes("not `tab.locator(...)`"), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -560,6 +645,8 @@ await testNativeHostHandlesChromePing();
 await testNativeHostTimesOutMissingChromeResponse();
 testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols();
 await testPatchedBrowserClientStaticMarkers();
+await testPatchedChromeRunningCheckerIgnoresExtensionlessLinuxChrome();
+await testPatchedChromeSkillMakesNodeReplToolSurfaceExplicit();
 await testPatchedBrowserClientRegistryDiscovery();
 
 console.error("[INFO] Linux browser runtime tests passed");

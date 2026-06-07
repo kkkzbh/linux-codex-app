@@ -2,6 +2,8 @@
 
 import assert from "node:assert/strict";
 import { browserChromeSubpatches } from "./linux-runtime/features/browser-chrome/index.mjs";
+import { computerUseAvailabilityFeature } from "./linux-runtime/features/computer-use-availability.mjs";
+import { computerUseProviderFeature } from "./linux-runtime/features/computer-use-provider.mjs";
 import { generatedOutputArtifactsFeature } from "./linux-runtime/features/generated-output-artifacts.mjs";
 import { linuxPatchFeatures } from "./linux-runtime/features/index.mjs";
 import { FEATURE_MARKERS } from "./linux-runtime/markers.mjs";
@@ -25,6 +27,8 @@ assert.equal(featureIds.has("conversation-local-images"), false);
 assert.equal(featureIds.has("local-image-cache-refresh"), false);
 assert.equal(featureIds.has("generated-output-artifacts"), true);
 assert.equal(featureIds.has("browser-chrome"), true);
+assert.equal(featureIds.has("computer-use-availability"), true);
+assert.equal(featureIds.has("computer-use-provider"), true);
 assert.equal(featureIds.has("browser-use"), false);
 assert.equal(featureIds.has("browser-backend-registry"), false);
 assert.equal(featureIds.has("browser-security"), false);
@@ -149,6 +153,64 @@ chromeSetupUrlFeature.verify(chromeSetupBundle);
 assert.equal(chromeSetupBundle.webviewPluginAvailability.includes("encodeURIComponent"), true);
 assert.equal(chromeSetupBundle.webviewPluginAvailability.includes("useExternalBrowser:!0"), true);
 assert.equal(chromeSetupBundle.webviewPluginDetail.includes("plugin_browser_extension_setup"), true);
+
+let computerUseSettingsBundle = {
+  webviewComputerUseSettings:
+    "function je(e){let t=(0,Z.c)(48),{computerUseAvailability:r}=e,i=b(),{selectedHostId:a}=ce(),o=n(a).kind===`local`,s;t[0]===a?s=t[1]:(s={hostId:a},t[0]=a,t[1]=s);let c=O(s),u;t[2]===Symbol.for(`react.memo_cache_sentinel`)?(u=[],t[2]=u):u=t[2];let d=k(a,u),f=pe(a),p;t[3]!==f||t[4]!==d.availablePlugins?(p=X(d.availablePlugins,we,f),t[3]=f,t[4]=d.availablePlugins,t[5]=p):p=t[5];let m=p,h;",
+  webviewComputerUseProviderSettings:
+    "function St(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=l(le());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ee(n,e.marketplacePath))??null}",
+};
+assert.equal(computerUseProviderFeature.isApplied(computerUseSettingsBundle), false);
+computerUseSettingsBundle = computerUseProviderFeature.apply(computerUseSettingsBundle);
+computerUseProviderFeature.verify(computerUseSettingsBundle);
+assert.equal(
+  computerUseSettingsBundle.webviewComputerUseProviderSettings.includes("kde-computer-use"),
+  true,
+);
+assert.equal(
+  computerUseSettingsBundle.webviewComputerUseProviderSettings.includes(
+    "plugin.name===`kde-computer-use`",
+  ),
+  true,
+);
+assert.equal(
+  computerUseSettingsBundle.webviewComputerUseSettings.includes(
+    "p=X([...d.availablePlugins,...d.installedPlugins],we,f)",
+  ),
+  true,
+);
+assert.equal(
+  computerUseSettingsBundle.webviewComputerUseSettings.includes(
+    "function codexLinuxComputerUseProvider()",
+  ),
+  true,
+);
+assert.equal(
+  computerUseSettingsBundle.webviewComputerUseSettings.includes(
+    "let m=p??codexLinuxComputerUseProvider(),h;",
+  ),
+  true,
+);
+
+let computerUseAvailabilityBundle = {
+  webviewPluginFeatureGate:
+    "function d(e){return e===`macOS`||e===`windows`}function f(e){let t=(0,l.c)(14),{enabled:n,hostId:r}=e,i=n===void 0?!0:n,{isLoading:o,platform:c}=s(),f=a(`1506311413`),m;t[0]===r?m=t[1]:(m={featureName:`computer_use`,hostId:r},t[0]=r,t[1]=m);let h=u(m),g;t[2]!==h.enabled||t[3]!==h.isLoading||t[4]!==i||t[5]!==f||t[6]!==o||t[7]!==c?(g=p({enabled:i,isComputerUseFeatureEnabled:h.enabled,isComputerUseFeatureLoading:h.isLoading,isComputerUseGateEnabled:f,isHostCompatiblePlatform:d(c),isPlatformLoading:o,windowType:`electron`}),t[2]=h.enabled,t[3]=h.isLoading,t[4]=i,t[5]=f,t[6]=o,t[7]=c,t[8]=g):g=t[8]}",
+};
+assert.equal(computerUseAvailabilityFeature.isApplied(computerUseAvailabilityBundle), false);
+computerUseAvailabilityBundle = computerUseAvailabilityFeature.apply(computerUseAvailabilityBundle);
+computerUseAvailabilityFeature.verify(computerUseAvailabilityBundle);
+assert.equal(
+  computerUseAvailabilityBundle.webviewPluginFeatureGate.includes(
+    "e===`macOS`||e===`windows`||e===`linux`",
+  ),
+  true,
+);
+assert.equal(
+  computerUseAvailabilityBundle.webviewPluginFeatureGate.includes(
+    "isComputerUseGateEnabled:f||c===`linux`",
+  ),
+  true,
+);
 
 let settingsSidebarBundle = {
   webviewSettingsPage:
