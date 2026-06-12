@@ -5,6 +5,9 @@
    Codex Desktop version/build, Electron version, pinned 7-Zip extractor,
    Codex CLI release, and Linux patch version. The Codex CLI entry must include
    the exact package URL, vendor target, and sha256.
+   Keep `rpmVersion` stable unless there is a package-manager compatibility
+   reason to change it; publish new upstream refreshes by changing
+   `rpmRelease` to a date suffix such as `YYYYMMDD.codex26_608_12217`.
 3. Run static checks:
 
    ```bash

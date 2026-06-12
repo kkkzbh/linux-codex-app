@@ -5,7 +5,7 @@ on:
     inputs:
       manifest:
         description: "Pinned upstream manifest path"
-        default: "upstream/codex-app-20260602.json"
+        default: "upstream/codex-app-20260609.json"
         required: true
   pull_request:
   push:
@@ -47,7 +47,7 @@ jobs:
         env:
           LINUX_CODEX_APP_REPO_BASEURL: https://kkkzbh.github.io/linux-codex-app/rpm/fedora/$releasever/$basearch
           LINUX_CODEX_APP_REPO_ENABLED: "1"
-        run: ./scripts/build-runtime-packages.sh "${{ inputs.manifest || 'upstream/codex-app-20260602.json' }}"
+        run: ./scripts/build-runtime-packages.sh "${{ inputs.manifest || 'upstream/codex-app-20260609.json' }}"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch'
         with:

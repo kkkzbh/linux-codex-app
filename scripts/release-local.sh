@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST_PATH="${1:-$REPO_ROOT/upstream/codex-app-20260602.json}"
+MANIFEST_PATH="${1:-$REPO_ROOT/upstream/codex-app-20260609.json}"
 DIST_DIR="${LINUX_CODEX_APP_DIST_DIR:-$REPO_ROOT/dist}"
 
 info() { printf '[INFO] %s\n' "$*" >&2; }

@@ -7,9 +7,9 @@
 当前目标平台：
 
 - Fedora 44 KDE x86_64 是 RPM/DNF 仓库的主要验证目标
-- Codex App `26.527.60818`
+- Codex App `26.608.12217`
 - Electron `42.1.0`
-- Codex CLI `0.135.0`
+- Codex CLI `0.139.0`
 
 发布产物：
 
@@ -104,7 +104,7 @@ linux-codex-app disable kitty-window-access
 当前版本：
 
 ```bash
-VERSION=v0.1.1-codex26.527.60818
+VERSION=v0.1.2-20260612.codex26.608.12217
 BASE=https://github.com/kkkzbh/linux-codex-app/releases/download/$VERSION
 ```
 
@@ -119,45 +119,45 @@ curl -LO "$BASE/SHA256SUMS"
 如果不想导入 DNF 仓库，也可以直接下载 RPM 后安装：
 
 ```bash
-curl -LO "$BASE/linux-codex-app-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm"
+curl -LO "$BASE/linux-codex-app-0.1.2-20260612.codex26_608_12217.fc44.x86_64.rpm"
 sha256sum -c SHA256SUMS --ignore-missing
-sudo dnf install ./linux-codex-app-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm
+sudo dnf install ./linux-codex-app-0.1.2-20260612.codex26_608_12217.fc44.x86_64.rpm
 codex-app
 ```
 
 ### Debian/Ubuntu DEB
 
 ```bash
-curl -LO "$BASE/linux-codex-app_0.1.1-1.codex26.527.60818_amd64.deb"
+curl -LO "$BASE/linux-codex-app_0.1.2-20260612.codex26.608.12217_amd64.deb"
 sha256sum -c SHA256SUMS --ignore-missing
-sudo apt install ./linux-codex-app_0.1.1-1.codex26.527.60818_amd64.deb
+sudo apt install ./linux-codex-app_0.1.2-20260612.codex26.608.12217_amd64.deb
 codex-app
 ```
 
 ### Arch/pacman
 
 ```bash
-curl -LO "$BASE/linux-codex-app-0.1.1-1.codex26_527_60818-x86_64.pkg.tar.zst"
+curl -LO "$BASE/linux-codex-app-0.1.2-20260612.codex26_608_12217-x86_64.pkg.tar.zst"
 sha256sum -c SHA256SUMS --ignore-missing
-sudo pacman -U ./linux-codex-app-0.1.1-1.codex26_527_60818-x86_64.pkg.tar.zst
+sudo pacman -U ./linux-codex-app-0.1.2-20260612.codex26_608_12217-x86_64.pkg.tar.zst
 codex-app
 ```
 
 ### AppImage
 
 ```bash
-curl -LO "$BASE/linux-codex-app-0.1.1-1.codex26_527_60818.x86_64.AppImage"
+curl -LO "$BASE/linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.AppImage"
 sha256sum -c SHA256SUMS --ignore-missing
-chmod +x ./linux-codex-app-0.1.1-1.codex26_527_60818.x86_64.AppImage
-./linux-codex-app-0.1.1-1.codex26_527_60818.x86_64.AppImage
+chmod +x ./linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.AppImage
+./linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.AppImage
 ```
 
 ### Portable tar.gz
 
 ```bash
-curl -LO "$BASE/linux-codex-app-0.1.1-1.codex26_527_60818.x86_64.tar.gz"
+curl -LO "$BASE/linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.tar.gz"
 sha256sum -c SHA256SUMS --ignore-missing
-tar -tzf linux-codex-app-0.1.1-1.codex26_527_60818.x86_64.tar.gz | head
+tar -tzf linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.tar.gz | head
 ```
 
 tar.gz 是以 `/` 为根的 portable payload。手工安装时解到目标根目录，或解包检查其中的 `/opt/linux-codex-app`、`/usr/bin/codex-app` 和 desktop metadata。
