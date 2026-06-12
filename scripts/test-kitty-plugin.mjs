@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createKittyController, KITTY_TOOLS } from "../plugins/kitty/scripts/kitty-lib.mjs";
+import { assertPluginManifestBasics, runPluginValidatorIfAvailable } from "./plugin-test-utils.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const installerRoot = path.dirname(scriptDir);
@@ -16,7 +17,6 @@ const mcpScript = path.join(pluginRoot, "scripts", "kitty-mcp.mjs");
 const marketplaceFilterScript = path.join(scriptDir, "filter-bundled-marketplace.mjs");
 const marketplaceAddScript = path.join(scriptDir, "add-local-bundled-marketplace-plugins.mjs");
 const kittyWindowAccessScript = path.join(scriptDir, "install-kitty-window-access.sh");
-const pluginValidator = "/home/kkkzbh/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py";
 
 function makeTempDir(prefix) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -1616,6 +1616,7 @@ function withoutCodexKittyEnv(env = process.env) {
 
 function testPluginMetadata() {
   const manifest = JSON.parse(readFileSync(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
+  assertPluginManifestBasics(manifest, pluginRoot);
   assert.equal(manifest.name, "kitty");
   assert.equal(manifest.version, "0.1.14");
   assert.equal(manifest.mcpServers, "./.mcp.json");
@@ -1630,16 +1631,7 @@ function testPluginMetadata() {
   assert.deepEqual(mcpManifest.kitty.args, ["./scripts/kitty-mcp.mjs"]);
   assert.equal(mcpManifest.kitty.cwd, ".");
 
-  const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
-  const validationOutput = validation.stdout + validation.stderr;
-  if (
-    validation.status !== 0 &&
-    validationOutput.includes("field `kitty` is not accepted by plugin validation") &&
-    validationOutput.includes("field `mcpServers` must be an object")
-  ) {
-    return;
-  }
-  assert.equal(validation.status, 0, validationOutput);
+  runPluginValidatorIfAvailable(pluginRoot, "kitty");
 }
 
 async function testKittyIdentityDoesNotUseLegacyCodexKittyName() {
