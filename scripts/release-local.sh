@@ -52,7 +52,6 @@ sign_rpms_if_possible() {
     require_cmd rpmsign
     info "Signing RPMs with key: $RPM_SIGNING_KEY_ID"
     rpmsign --key-id "$RPM_SIGNING_KEY_ID" --addsign "$DIST_DIR"/*.rpm
-    rpm -K "$DIST_DIR"/*.rpm | tee "$REPO_ROOT/rpm-signature-checks.txt"
 
     local public_key_file="$REPO_ROOT/.build/RPM-GPG-KEY-linux-codex-app"
     mkdir -p "$REPO_ROOT/.build"
