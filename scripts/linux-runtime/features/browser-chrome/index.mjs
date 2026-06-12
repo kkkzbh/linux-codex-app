@@ -1,3 +1,4 @@
+import { browserAutomationRuntimeNameFeature } from "./browser-automation-runtime-name.mjs";
 import { browserBackendRegistryFeature } from "./browser-backend-registry.mjs";
 import { browserSecurityFeature } from "./browser-security.mjs";
 import { browserUseFeature } from "./browser-use.mjs";
@@ -6,6 +7,7 @@ import { chromeSetupUrlFeature } from "./chrome-setup-url.mjs";
 
 export const browserChromeSubpatches = [
   browserUseFeature,
+  browserAutomationRuntimeNameFeature,
   browserBackendRegistryFeature,
   browserSecurityFeature,
   chromeExtensionStatusFeature,

@@ -13,8 +13,8 @@ export const settingsSidebarSurfaceFeature = {
 
     const webviewSettingsPage = replaceOrThrow(
       bundleSources.webviewSettingsPage,
-      "J=a(`window-fx-sidebar-surface flex shrink-0 flex-col`,`w-token-sidebar`),Y=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full`})",
-      "J=a(`app-shell-left-panel window-fx-sidebar-surface pointer-events-auto relative flex shrink-0 flex-col overflow-visible`,`w-token-sidebar`),Y=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full`})",
+      "q=h(`app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden`,`w-token-sidebar`),J=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full shrink-0`})",
+      "q=h(`app-shell-left-panel window-fx-sidebar-surface pointer-events-auto relative flex min-h-0 shrink-0 flex-col overflow-visible`,`w-token-sidebar`),J=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full shrink-0`})",
       "current upstream settings sidebar standalone surface class",
     );
 

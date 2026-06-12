@@ -133,29 +133,36 @@ function parseProcessList(output, processNames) {
   },
 ];
 
+export const CHROME_INSTALL_MANIFEST_PATCHES = [
+  {
+    label: "browser automation native host config path",
+    apply(source) {
+      return source.replaceAll("nodeReplPath", "browserAutomationPath");
+    },
+    appliedMarkers: ["browserAutomationPath"],
+  },
+];
+
 export const CHROME_SKILL_GUIDANCE_PATCHES = [
   {
     label: "visible tool surface guidance",
     search: `Chrome is the routing touchpoint for the Codex Chrome Extension:
 
-- Use Chrome directly for browser automation requests and for Chrome setup, detection, repair, or profile checks.
+- Use Chrome directly for Chrome setup, detection, repair, or profile checks.
 - For bare or general \`@chrome\` requests, do not ask a clarification question just because the request is ambiguous. Proceed with browser automation in this skill using the \`chrome\` backend.
-- If communication with the Codex Chrome Extension ultimately fails, even after checks, do not attempt to complete the user's request using applescript, bash commands or any other scripting methods.
-- Do not install or repair the native host yourself. If native host setup appears broken, tell the user to reinstall the Chrome plugin from the Codex plugin UI.`,
+`,
     replacement: `Chrome is the routing touchpoint for the Codex Chrome Extension:
 
-- Use Chrome directly for browser automation requests and for Chrome setup, detection, repair, or profile checks.
+- Use Chrome directly for Chrome setup, detection, repair, or profile checks.
 - For bare or general \`@chrome\` requests, do not ask a clarification question just because the request is ambiguous. Proceed with browser automation in this skill using the \`chrome\` backend.
-- If communication with the Codex Chrome Extension ultimately fails, even after checks, do not attempt to complete the user's request using applescript, bash commands or any other scripting methods.
-- Do not install or repair the native host yourself. If native host setup appears broken, tell the user to reinstall the Chrome plugin from the Codex plugin UI.
 - If this plugin is listed as available in the session, treat that as mandatory reading before Chrome browser work. Open and follow this skill before saying that Chrome is unavailable and before falling back to Computer Use or any other browser-control path.
 - Do not skip this skill just because Computer Use MCP tool calls are directly visible or appear easier to invoke. The presence of Computer Use tools is not evidence that Computer Use is the preferred Chrome surface.
 
 ## Visible Tool Surface
 
-Chrome browser control is exposed through the generic Node REPL \`js\` tool after loading this plugin's \`scripts/browser-client.mjs\`; it is expected that tool discovery may not show separate Chrome-specific \`click\`, \`type\`, \`navigate\`, \`screenshot\`, or \`devtools\` tools.
+Chrome browser control is exposed through the \`browser_automation\` MCP server's \`js\` tool after loading this plugin's \`scripts/browser-client.mjs\`; it is expected that tool discovery may not show separate Chrome-specific \`click\`, \`type\`, \`navigate\`, \`screenshot\`, or \`devtools\` tools.
 
-Do not conclude that Chrome DOM/DevTools automation is unavailable just because only \`node_repl\` is visible. Use the Node REPL \`js\` tool, import \`scripts/browser-client.mjs\` from this plugin root, call \`setupBrowserRuntime({ globals: globalThis })\`, and then use \`agent.browsers.get("extension")\`.
+Do not conclude that Chrome DOM/DevTools automation is unavailable just because only \`browser_automation\` is visible. Use the \`browser_automation\` \`js\` tool, import \`scripts/browser-client.mjs\` from this plugin root, call \`setupBrowserRuntime({ globals: globalThis })\`, and then use \`agent.browsers.get("extension")\`.
 
 Current verified API shape:
 
@@ -172,6 +179,31 @@ await tab.close();
 
 Use \`browser.tabs.new()\`, not \`browser.tabs.create()\`. Use \`tab.playwright.locator(...)\`, not \`tab.locator(...)\`.`,
   },
+  {
+    label: "browser automation tool naming",
+    apply(source) {
+      return source
+        .replaceAll("mcp__node_repl__js", "mcp__browser_automation__js")
+        .replaceAll("nodeRepl.emitImage", "browserAutomation.emitImage")
+        .replaceAll("node_repl", "browser_automation")
+        .replaceAll("Node REPL", "browser_automation")
+        .replaceAll("nodeRepl", "browserAutomation")
+        .replaceAll(
+          "Never mention `browser_automation`, `browser_automation`, `REPL`, JavaScript sessions, or module exports unless a user is asking for that exact information.",
+          "Never mention MCP internals, JavaScript sessions, or module exports unless a user is asking for that exact information.",
+        )
+        .replaceAll(
+          "Never mention `browser_automation`, `browser_automation`, `browser_automation`, JavaScript sessions, module exports, reading documentation, or loading instructions unless a user is asking for that exact information.",
+          "Never mention MCP internals, JavaScript sessions, module exports, reading documentation, or loading instructions unless a user is asking for that exact information.",
+        )
+        .replaceAll(
+          "Never mention `browser_automation`, `browser_automation`, `REPL`, JavaScript sessions, module exports, reading documentation, or loading instructions unless a user is asking for that exact information.",
+          "Never mention MCP internals, JavaScript sessions, module exports, reading documentation, or loading instructions unless a user is asking for that exact information.",
+        )
+        .replaceAll("calls to the REPL", "browser_automation calls");
+    },
+    appliedMarkers: ["browser_automation", "browserAutomation"],
+  },
 ];
 
 export function patchChromeManifestChecker(checkerPath) {
@@ -180,6 +212,10 @@ export function patchChromeManifestChecker(checkerPath) {
 
 export function patchChromeRunningChecker(checkerPath) {
   patchFile(checkerPath, CHROME_RUNNING_CHECK_PATCHES, "Chrome running checker");
+}
+
+export function patchChromeInstallManifest(installManifestPath) {
+  patchFile(installManifestPath, CHROME_INSTALL_MANIFEST_PATCHES, "Chrome native host install manifest");
 }
 
 export function patchChromeSkill(skillPath) {

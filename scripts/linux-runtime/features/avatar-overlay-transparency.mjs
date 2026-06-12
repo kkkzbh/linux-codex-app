@@ -17,16 +17,16 @@ export const avatarOverlayTransparencyFeature = {
       replaceOrThrow(
         replaceOrThrow(
           bundleSources.main,
-          "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
-          "case`avatarOverlay`:return{...a0({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:k1,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
+          "case`avatarOverlay`:return{...w3({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
+          "case`avatarOverlay`:return{...w3({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:W4,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
           "current upstream avatar overlay BrowserWindow options",
         ),
-        "title:i.app.getName(),width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
-        "title:`Codex Pet Overlay`,width:CX.width,height:CX.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:VX",
+        "title:r.app.getName(),width:$Q.width,height:$Q.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:n1",
+        "title:`Codex Pet Overlay`,width:$Q.width,height:$Q.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:n1",
         "current upstream avatar overlay title",
       ),
-      "JX={width:276,height:131}",
-      "JX={width:320,height:131}",
+      "l1={width:276,height:131}",
+      "l1={width:320,height:131}",
       "current upstream avatar overlay tray default size",
     );
 
@@ -35,20 +35,20 @@ export const avatarOverlayTransparencyFeature = {
         replaceOrThrow(
           replaceOrThrow(
             bundleSources.webviewAvatarOverlay,
-            "function pn(){let e=(0,R.c)(9),",
-            `${avatarOverlayTransparentPrelude}function pn(){codexLinuxEnsureAvatarOverlayTransparent();let e=(0,R.c)(9),`,
+            "function ht(){let e=(0,U.c)(9),",
+            `${avatarOverlayTransparentPrelude}function ht(){codexLinuxEnsureAvatarOverlayTransparent();let e=(0,U.c)(9),`,
             "current upstream avatar overlay transparent webview root",
           ),
-          "nt=32",
-          "nt=64",
+          "J=32",
+          "J=64",
           "current upstream avatar overlay collapsed body height",
         ),
-        "I?`whitespace-pre-wrap`:b==null?`line-clamp-2`:void 0",
-        "I?`whitespace-pre-wrap`:b==null?`line-clamp-4`:void 0",
+        "B?`whitespace-pre-wrap`:b==null?`line-clamp-2`:void 0",
+        "B?`whitespace-pre-wrap`:b==null?`line-clamp-4`:void 0",
         "current upstream avatar overlay collapsed body line clamp",
       ),
-      "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:80,top:56,width:276,height:131},viewport:{width:356,height:320}}",
-      "fn={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:36,top:56,width:320,height:131},viewport:{width:356,height:320}}",
+      "mt={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:80,top:56,width:276,height:131},viewport:{width:356,height:320}}",
+      "mt={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:36,top:56,width:320,height:131},viewport:{width:356,height:320}}",
       "current upstream avatar overlay fallback layout",
     );
 

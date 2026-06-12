@@ -4,24 +4,25 @@ import { FEATURE_MARKERS } from "../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
 const upstreamComputerUseProviderSelector =
-  "function St(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=l(le());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ee(n,e.marketplacePath))??null}";
+  "function an(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=E(ye());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>O(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>ze(n,e.marketplacePath))??null}";
 
 const linuxComputerUseProviderSelector =
-  "function St(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t||e.plugin.name===`kde-computer-use`||e.plugin.id.split(`@`)[0]===`kde-computer-use`),i=l(le());return r.find(e=>(e.plugin.name===`kde-computer-use`||e.plugin.id.split(`@`)[0]===`kde-computer-use`)&&e.marketplaceName===`local`)??(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ee(n,e.marketplacePath))??null}";
+  "function an(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t||e.plugin.name===`kde-computer-use`||e.plugin.id.split(`@`)[0]===`kde-computer-use`),i=E(ye());return r.find(e=>(e.plugin.name===`kde-computer-use`||e.plugin.id.split(`@`)[0]===`kde-computer-use`)&&e.marketplaceName===`local`)??(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>O(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>ze(n,e.marketplacePath))??null}";
 
-const upstreamComputerUseAvailablePluginsSelector = "p=X(d.availablePlugins,we,f)";
+const upstreamComputerUseAvailablePluginsSelector =
+  "t[3]!==u||t[4]!==l.availablePlugins?(d=T(l.availablePlugins,Te,u),t[3]=u,t[4]=l.availablePlugins,t[5]=d):d=t[5]";
 const linuxComputerUseInstalledPluginsSelector =
-  "p=X([...d.availablePlugins,...d.installedPlugins],we,f)";
+  "t[3]!==u||t[4]!==l?(d=T([...l.availablePlugins,...l.installedPlugins],Te,u),t[3]=u,t[4]=l,t[5]=d):d=t[5]";
 
-const upstreamComputerUseSettingsFunction = "function je(e){let t=(0,Z.c)(48),";
+const upstreamComputerUseSettingsFunction = "function Me(e){let t=(0,X.c)(48),";
 const computerUseLogoDataUrl = `data:image/png;base64,${readFileSync(
   new URL("../../../plugins/computer-use/assets/computer-use.png", import.meta.url),
 ).toString("base64")}`;
 const linuxComputerUseSettingsFunction =
-  `function codexLinuxComputerUseProvider(){return{description:\`Observe and control the foreground KDE Wayland desktop\`,displayName:\`Computer Use\`,logoPath:${JSON.stringify(computerUseLogoDataUrl)},marketplaceDisplayName:\`local-plugins\`,marketplaceName:\`local\`,plugin:{enabled:!0,id:\`kde-computer-use@local-plugins\`,installed:!0,interface:{composerIcon:${JSON.stringify(computerUseLogoDataUrl)},defaultPrompt:[\`Look at my KDE desktop\`],displayName:\`Computer Use\`,logo:${JSON.stringify(computerUseLogoDataUrl)}},name:\`kde-computer-use\`}}}function je(e){let t=(0,Z.c)(48),`;
+  `function codexLinuxComputerUseProvider(){return{description:\`Observe and control the foreground KDE Wayland desktop\`,displayName:\`Computer Use\`,logoPath:${JSON.stringify(computerUseLogoDataUrl)},marketplaceDisplayName:\`local-plugins\`,marketplaceName:\`local\`,plugin:{enabled:!0,id:\`kde-computer-use@local-plugins\`,installed:!0,interface:{composerIcon:${JSON.stringify(computerUseLogoDataUrl)},defaultPrompt:[\`Look at my KDE desktop\`],displayName:\`Computer Use\`,logo:${JSON.stringify(computerUseLogoDataUrl)}},name:\`kde-computer-use\`}}}function Me(e){let t=(0,X.c)(48),`;
 
-const upstreamComputerUseProviderAssignment = "let m=p,h;";
-const linuxComputerUseProviderAssignment = "let m=p??codexLinuxComputerUseProvider(),h;";
+const upstreamComputerUseProviderAssignment = "let f=d,p;";
+const linuxComputerUseProviderAssignment = "let f=d??codexLinuxComputerUseProvider(),p;";
 
 export const computerUseProviderFeature = {
   id: "computer-use-provider",

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { patchBrowserClient } from "./linux-browser-runtime/browser-client-patches.mjs";
+import { patchBrowserPlugin } from "./linux-browser-runtime/browser-plugin-patches.mjs";
 
-const [browserClientPath] = process.argv.slice(2);
+const [browserRoot] = process.argv.slice(2);
 
-if (!browserClientPath) {
-  console.error("Usage: patch-browser-use-plugin.mjs <browser-client.mjs>");
+if (!browserRoot) {
+  console.error("Usage: patch-browser-use-plugin.mjs <browser-plugin-root>");
   process.exit(1);
 }
 
-patchBrowserClient(browserClientPath);
+patchBrowserPlugin(browserRoot);

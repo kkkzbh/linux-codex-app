@@ -4,7 +4,7 @@
   "appVersion": "26.527.60818",
   "appBuildNumber": "3437",
   "rpmVersion": "0.1.2",
-  "rpmRelease": "1.codex26_527_60818",
+  "rpmRelease": "20260612.codex26_527_60818",
   "targetArch": "x86_64",
   "dmg": {
     "url": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",

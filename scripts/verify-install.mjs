@@ -211,6 +211,7 @@ function verifyBundledPlugins(resourcesDir) {
   const browserUseRoot = path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser");
   const browserUsePluginJson = path.join(browserUseRoot, ".codex-plugin", "plugin.json");
   const browserUseClient = path.join(browserUseRoot, "scripts", "browser-client.mjs");
+  const browserUseSkill = path.join(browserUseRoot, "skills", "control-in-app-browser", "SKILL.md");
   const chromeRoot = path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome");
   const chromePluginJson = path.join(chromeRoot, ".codex-plugin", "plugin.json");
   const chromeClient = path.join(chromeRoot, "scripts", "browser-client.mjs");
@@ -252,11 +253,12 @@ function verifyBundledPlugins(resourcesDir) {
   const computerUseAccess = path.join(scriptDir, "install-computer-use-access.sh");
   const codexRuntimePath = path.join(resourcesDir, "codex");
   const nodeRuntimePath = path.join(resourcesDir, "node");
-  const nodeReplPath = path.join(resourcesDir, "node_repl");
+  const browserAutomationPath = path.join(resourcesDir, "browser_automation");
 
   requirePath(marketplacePath, "OpenAI bundled marketplace");
   requirePath(browserUsePluginJson, "Browser Use plugin manifest");
   requirePath(browserUseClient, "Browser Use client script");
+  requirePath(browserUseSkill, "Browser Use control skill");
   requirePath(chromePluginJson, "Chrome plugin manifest");
   requirePath(chromeClient, "Chrome client script");
   requirePath(chromeRunningCheck, "Chrome running checker");
@@ -300,7 +302,7 @@ function verifyBundledPlugins(resourcesDir) {
     requireExecutable(computerUseAccess);
   }
 
-  requireExecutable(nodeReplPath);
+  requireExecutable(browserAutomationPath);
   requireExecutable(codexRuntimePath);
   requireExecutable(nodeRuntimePath);
 
@@ -320,33 +322,33 @@ function verifyBundledPlugins(resourcesDir) {
     fail(`Expected resources/node to resolve the primary Codex runtime Node: ${nodeRuntimePath}`);
   }
 
-  const nodeReplSource = readFileSync(nodeReplPath, "utf8");
-  if (!nodeReplSource.includes("fetchViaCodexDesktop")) {
-    fail(`Expected Linux node_repl to route site-status through Codex Desktop auth fetch: ${nodeReplPath}`);
+  const browserAutomationSource = readFileSync(browserAutomationPath, "utf8");
+  if (!browserAutomationSource.includes("fetchViaCodexDesktop")) {
+    fail(`Expected Linux browser_automation to route site-status through Codex Desktop auth fetch: ${browserAutomationPath}`);
   }
-  if (!nodeReplSource.includes("requestDesktopBrowserApproval")) {
-    fail(`Expected Linux node_repl to route Browser Use origin approval through Codex Desktop: ${nodeReplPath}`);
+  if (!browserAutomationSource.includes("requestDesktopBrowserApproval")) {
+    fail(`Expected Linux browser_automation to route Browser Use origin approval through Codex Desktop: ${browserAutomationPath}`);
   }
-  if (!nodeReplSource.includes("CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET")) {
-    fail(`Expected Linux node_repl to use CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET: ${nodeReplPath}`);
+  if (!browserAutomationSource.includes("CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET")) {
+    fail(`Expected Linux browser_automation to use CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET: ${browserAutomationPath}`);
   }
-  if (!nodeReplSource.includes("systemctl") || !nodeReplSource.includes("show-environment")) {
-    fail(`Expected Linux node_repl to recover desktop session variables from systemd user environment: ${nodeReplPath}`);
+  if (!browserAutomationSource.includes("systemctl") || !browserAutomationSource.includes("show-environment")) {
+    fail(`Expected Linux browser_automation to recover desktop session variables from systemd user environment: ${browserAutomationPath}`);
   }
-  if (!nodeReplSource.includes("WAYLAND_DISPLAY") || !nodeReplSource.includes("DBUS_SESSION_BUS_ADDRESS")) {
-    fail(`Expected Linux node_repl to expose desktop session variables to browser plugins: ${nodeReplPath}`);
+  if (!browserAutomationSource.includes("WAYLAND_DISPLAY") || !browserAutomationSource.includes("DBUS_SESSION_BUS_ADDRESS")) {
+    fail(`Expected Linux browser_automation to expose desktop session variables to browser plugins: ${browserAutomationPath}`);
   }
-  if (!nodeReplSource.includes("Linux browser approval bridge unavailable")) {
-    fail(`Expected Linux node_repl to expose a clear browser approval bridge failure: ${nodeReplPath}`);
+  if (!browserAutomationSource.includes("Linux browser approval bridge unavailable")) {
+    fail(`Expected Linux browser_automation to expose a clear browser approval bridge failure: ${browserAutomationPath}`);
   }
-  if (nodeReplSource.includes("cf-mitigated")) {
-    fail(`Linux node_repl should not fake site-status results for Cloudflare challenges: ${nodeReplPath}`);
+  if (browserAutomationSource.includes("cf-mitigated")) {
+    fail(`Linux browser_automation should not fake site-status results for Cloudflare challenges: ${browserAutomationPath}`);
   }
-  if (nodeReplSource.includes("elicitation/create") || nodeReplSource.includes("debugCreateElicitationRaw")) {
-    fail(`Linux node_repl Browser Use approval should not depend on MCP client elicitation requests: ${nodeReplPath}`);
+  if (browserAutomationSource.includes("elicitation/create") || browserAutomationSource.includes("debugCreateElicitationRaw")) {
+    fail(`Linux browser_automation Browser Use approval should not depend on MCP client elicitation requests: ${browserAutomationPath}`);
   }
-  if (nodeReplSource.includes('isLocalOrigin(origin) ? { action: "accept" } : { action: "decline" }')) {
-    fail(`Linux node_repl should not silently decline non-local Browser Use origins: ${nodeReplPath}`);
+  if (browserAutomationSource.includes('isLocalOrigin(origin) ? { action: "accept" } : { action: "decline" }')) {
+    fail(`Linux browser_automation should not silently decline non-local Browser Use origins: ${browserAutomationPath}`);
   }
 
   const browserUseClientSource = readFileSync(browserUseClient, "utf8");
@@ -367,6 +369,12 @@ function verifyBundledPlugins(resourcesDir) {
   }
   if (browserUseClientSource.includes("OS(Zf)") || browserUseClientSource.includes("map(e=>BS.resolve(Zf,e))")) {
     fail(`Browser Use client should not enumerate legacy Linux browser socket directories: ${browserUseClient}`);
+  }
+  if (/privilegedNodeRepl|outside node repl/.test(browserUseClientSource)) {
+    fail(`Browser Use client must not retain old node repl runtime naming: ${browserUseClient}`);
+  }
+  if (!/[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/.test(browserUseClientSource)) {
+    fail(`Expected Browser Use client to use Linux Chrome profile root: ${browserUseClient}`);
   }
   if (!browserUseClientSource.includes("waitForArrival:!1,x:r,y:n")) {
     fail(`Expected Browser Use client to avoid blocking on Linux mouse move arrival: ${browserUseClient}`);
@@ -397,6 +405,9 @@ function verifyBundledPlugins(resourcesDir) {
   if (chromeClientSource.includes("OS(Zf)") || chromeClientSource.includes("map(e=>BS.resolve(Zf,e))")) {
     fail(`Chrome client should not enumerate legacy Linux browser socket directories: ${chromeClient}`);
   }
+  if (/privilegedNodeRepl|outside node repl/.test(chromeClientSource)) {
+    fail(`Chrome client must not retain old node repl runtime naming: ${chromeClient}`);
+  }
   if (!/[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/.test(chromeClientSource)) {
     fail(`Expected Chrome client to use Linux Chrome profile root: ${chromeClient}`);
   }
@@ -410,6 +421,24 @@ function verifyBundledPlugins(resourcesDir) {
     fail(`Expected Chrome client to dispatch an explicit CDP mouse move before clicking: ${chromeClient}`);
   }
 
+  const browserUseSkillSource = readFileSync(browserUseSkill, "utf8");
+  const browserUseManifest = JSON.parse(readFileSync(browserUsePluginJson, "utf8"));
+  if (browserUseManifest.keywords?.includes("node-repl")) {
+    fail(`Browser Use plugin manifest must not advertise the old node-repl keyword: ${browserUsePluginJson}`);
+  }
+  if (!browserUseManifest.keywords?.includes("browser-automation")) {
+    fail(`Browser Use plugin manifest should advertise browser-automation keyword: ${browserUsePluginJson}`);
+  }
+  if (
+    !browserUseSkillSource.includes("mcp__browser_automation__js") ||
+    !browserUseSkillSource.includes("browserAutomation.write")
+  ) {
+    fail(`Expected Browser Use skill to use browser_automation tool naming throughout: ${browserUseSkill}`);
+  }
+  if (/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(browserUseSkillSource)) {
+    fail(`Browser Use skill must not mention the old node_repl or REPL tool surface: ${browserUseSkill}`);
+  }
+
   const chromeRunningCheckSource = readFileSync(chromeRunningCheck, "utf8");
   if (!chromeRunningCheckSource.includes("isLinuxExtensionCapableChromeCommand")) {
     fail(`Expected Chrome running checker to filter Linux Chrome processes that cannot load extensions: ${chromeRunningCheck}`);
@@ -420,13 +449,19 @@ function verifyBundledPlugins(resourcesDir) {
 
   const chromeSkillSource = readFileSync(chromeSkill, "utf8");
   if (!chromeSkillSource.includes("## Visible Tool Surface")) {
-    fail(`Expected Chrome skill to explain the Node REPL browser-client tool surface: ${chromeSkill}`);
+    fail(`Expected Chrome skill to explain the browser_automation browser-client tool surface: ${chromeSkill}`);
   }
   if (!chromeSkillSource.includes("Do not conclude that Chrome DOM/DevTools automation is unavailable")) {
     fail(`Expected Chrome skill to prevent fallback when Chrome-specific tools are not directly visible: ${chromeSkill}`);
   }
   if (!chromeSkillSource.includes("browser.tabs.new()") || !chromeSkillSource.includes("tab.playwright.locator")) {
     fail(`Expected Chrome skill to document the current Chrome browser API shape: ${chromeSkill}`);
+  }
+  if (!chromeSkillSource.includes("mcp__browser_automation__js") || !chromeSkillSource.includes("browserAutomation.write")) {
+    fail(`Expected Chrome skill to use browser_automation tool naming throughout: ${chromeSkill}`);
+  }
+  if (/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(chromeSkillSource)) {
+    fail(`Chrome skill must not mention the old node_repl or REPL tool surface: ${chromeSkill}`);
   }
 
   const marketplace = JSON.parse(readFileSync(marketplacePath, "utf8"));

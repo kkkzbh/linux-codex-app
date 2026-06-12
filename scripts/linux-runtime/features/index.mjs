@@ -4,6 +4,7 @@ import { computerUseAvailabilityFeature } from "./computer-use-availability.mjs"
 import { computerUseProviderFeature } from "./computer-use-provider.mjs";
 import { generatedOutputArtifactsFeature } from "./generated-output-artifacts.mjs";
 import { markdownLocalMediaFeature } from "./markdown-local-media.mjs";
+import { multiWindowSecondInstanceFeature } from "./multi-window-second-instance.mjs";
 import { nativeTitlebarFeature } from "./native-titlebar.mjs";
 import { openTargetsFeature } from "./open-targets.mjs";
 import { settingsSidebarSurfaceFeature } from "./settings-sidebar-surface.mjs";
@@ -18,6 +19,7 @@ export const linuxPatchFeatures = [
   openTargetsFeature,
   markdownLocalMediaFeature,
   generatedOutputArtifactsFeature,
+  multiWindowSecondInstanceFeature,
   nativeTitlebarFeature,
   settingsSidebarSurfaceFeature,
   avatarOverlayTransparencyFeature,

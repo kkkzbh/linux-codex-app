@@ -16,11 +16,20 @@ const nativePipeBridgeRegex = new RegExp(
 
 function replaceNativePipeBridge(...args) {
   const { fn, nativePipe } = replacementGroups(args);
-  return `function ${fn}(){let ${nativePipe}=globalThis.nodeRepl?.nativePipe??globalThis.__codexNativePipe;return ${nativePipe}==null||typeof ${nativePipe}.createConnection!="function"?null:${nativePipe}}`;
+  return `function ${fn}(){let ${nativePipe}=globalThis.browserAutomation?.nativePipe??globalThis.__codexNativePipe;return ${nativePipe}==null||typeof ${nativePipe}.createConnection!="function"?null:${nativePipe}}`;
+}
+
+function replaceBrowserAutomationGlobal(source) {
+  return source
+    .replaceAll('"nodeRepl"in globalThis&&globalThis.nodeRepl', '"browserAutomation"in globalThis&&globalThis.browserAutomation')
+    .replaceAll("globalThis.nodeRepl", "globalThis.browserAutomation")
+    .replaceAll("e.nodeRepl", "e.browserAutomation")
+    .replaceAll("privilegedNodeRepl", "privilegedBrowserAutomation")
+    .replaceAll("outside node repl", "outside browser automation");
 }
 
 const backendInfoRequestRegex = new RegExp(
-  String.raw`async function (?<fn>${IDENTIFIER})\((?<socketPath>${IDENTIFIER}),(?<createApi>${IDENTIFIER})\)\{let (?<api>${IDENTIFIER})=null,(?<phase>${IDENTIFIER})="pipe-connect";try\{let (?<transport>${IDENTIFIER})=await (?<nativePipeClass>${IDENTIFIER})\.create\(\k<socketPath>\);\k<api>=\k<createApi>\(\k<transport>\),\k<phase>="backend-info-request";let (?<info>${IDENTIFIER})=await \k<api>\.getInfo\(\),(?<enrichedInfo>${IDENTIFIER})=await (?<enrichInfo>${IDENTIFIER})\(\k<info>\)\.catch\((?<enrichError>${IDENTIFIER})=>\((?<logError>${IDENTIFIER})\(\k<enrichError>\),\k<info>\)\);return\{browser:\{id:crypto\.randomUUID\(\)\.substring\(8\),api:\k<api>,info:(?<normalizeInfo>${IDENTIFIER})\(await (?<augmentInfo>${IDENTIFIER})\(\k<enrichedInfo>\)\)\}\}\}catch\((?<caughtError>${IDENTIFIER})\)\{return await \k<api>\?\.close\(\),\k<logError>\(\k<caughtError>\),\{failure:\`\$\{\k<phase>\}/\$\{(?<formatError>${IDENTIFIER})\(\k<caughtError>\)\}\`\}\}\}`,
+  String.raw`async function (?<fn>${IDENTIFIER})\((?<socketPath>${IDENTIFIER}),(?<createApi>${IDENTIFIER})\)\{let (?<api>${IDENTIFIER})=null,(?<phase>${IDENTIFIER})="pipe-connect";try\{let (?<transport>${IDENTIFIER})=await (?<nativePipeClass>${IDENTIFIER})\.create\(\k<socketPath>\);\k<api>=\k<createApi>\(\k<transport>\),\k<phase>="backend-info-request";let (?<info>${IDENTIFIER})=await (?<getInfoWithTimeout>${IDENTIFIER})\(\k<api>\.getInfo\(\)\),(?<enrichedInfo>${IDENTIFIER})=await (?<enrichInfo>${IDENTIFIER})\(\k<info>\)\.catch\((?<enrichError>${IDENTIFIER})=>\((?<logError>${IDENTIFIER})\(\k<enrichError>\),\k<info>\)\);return\{browser:\{id:crypto\.randomUUID\(\)\.substring\(8\),api:\k<api>,info:await (?<augmentInfo>${IDENTIFIER})\(\k<enrichedInfo>\)\}\}\}catch\((?<caughtError>${IDENTIFIER})\)\{return await \k<api>\?\.close\(\),\k<logError>\(\k<caughtError>\),\{failure:\`\$\{\k<phase>\}/\$\{(?<formatError>${IDENTIFIER})\(\k<caughtError>\)\}\`\}\}\}`,
 );
 
 function replaceBackendInfoRequest(...args) {
@@ -37,14 +46,13 @@ function replaceBackendInfoRequest(...args) {
     enrichInfo,
     enrichError,
     logError,
-    normalizeInfo,
     augmentInfo,
     caughtError,
     formatError,
   } = replacementGroups(args);
   const registryEntry = "codexLinuxBackendEntry";
 
-  return `async function ${fn}(${socketPath},${createApi}){let ${api}=null,${phase}="pipe-connect";try{let ${transport}=await ${nativePipeClass}.create(${socketPath});${api}=${createApi}(${transport}),${phase}="backend-info-request";let ${info}=await Promise.race([${api}.getInfo(),new Promise((codexLinuxResolve,codexLinuxReject)=>setTimeout(()=>codexLinuxReject(new Error("browser backend info request timed out")),4000))]),${registryEntry}=globalThis.__codexBrowserBackendRegistryByPath?.get?.(${socketPath});if(${registryEntry}&&${registryEntry}.type!==${info}.type)throw new Error(\`browser backend registry type mismatch for \${${socketPath}}: expected \${${registryEntry}.type}, got \${${info}.type}\`);let ${enrichedInfo}=await ${enrichInfo}(${info}).catch(${enrichError}=>(${logError}(${enrichError}),${info}));return{browser:{id:crypto.randomUUID().substring(8),api:${api},info:${normalizeInfo}(await ${augmentInfo}(${enrichedInfo}))}}}catch(${caughtError}){return await ${api}?.close(),${logError}(${caughtError}),{failure:\`\${${phase}}/\${${formatError}(${caughtError})}\`}}}`;
+  return `async function ${fn}(${socketPath},${createApi}){let ${api}=null,${phase}="pipe-connect";try{let ${transport}=await ${nativePipeClass}.create(${socketPath});${api}=${createApi}(${transport}),${phase}="backend-info-request";let ${info}=await Promise.race([${api}.getInfo(),new Promise((codexLinuxResolve,codexLinuxReject)=>setTimeout(()=>codexLinuxReject(new Error("browser backend info request timed out")),4000))]),${registryEntry}=globalThis.__codexBrowserBackendRegistryByPath?.get?.(${socketPath});if(${registryEntry}&&${registryEntry}.type!==${info}.type)throw new Error(\`browser backend registry type mismatch for \${${socketPath}}: expected \${${registryEntry}.type}, got \${${info}.type}\`);let ${enrichedInfo}=await ${enrichInfo}(${info}).catch(${enrichError}=>(${logError}(${enrichError}),${info}));return{browser:{id:crypto.randomUUID().substring(8),api:${api},info:await ${augmentInfo}(${enrichedInfo})}}}catch(${caughtError}){return await ${api}?.close(),${logError}(${caughtError}),{failure:\`\${${phase}}/\${${formatError}(${caughtError})}\`}}}`;
 }
 
 const linuxRegistryReaderRegex = new RegExp(
@@ -105,6 +113,18 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
     appliedMarkers: ["globalThis.__codexNativePipe"],
   },
   {
+    label: "browser automation global name",
+    locatorStrategy: "global-token-rewrite",
+    risk: "medium",
+    apply: replaceBrowserAutomationGlobal,
+    appliedMarkers: [
+      "globalThis.browserAutomation?.env",
+      "globalThis.browserAutomation?.fetch",
+      "e.browserAutomation?.setResponseMeta",
+      "e.browserAutomation?.emitImage",
+    ],
+  },
+  {
     label: "Linux registry-only backend discovery",
     locatorStrategy: "regex-preserve-minified-names",
     risk: "high",
@@ -143,9 +163,6 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
     replacement: replaceDirectClickDispatch,
     appliedMarkers: ['type:"mouseMoved"', "this.ui.moveMouse"],
   },
-];
-
-export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [
   {
     label: "Linux Chrome profile root",
     locatorStrategy: "regex-preserve-minified-names",
@@ -155,6 +172,8 @@ export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [
     appliedMarkers: ['===\"linux\"?".config/google-chrome"'],
   },
 ];
+
+export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [];
 
 export function patchBrowserClient(browserClientPath, { includeChromePatches = false } = {}) {
   patchFile(

@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const nodeReplPath = path.join(scriptDir, "linux-node-repl.mjs");
+const browserAutomationPath = path.join(scriptDir, "linux-browser-automation.mjs");
 
 function makeBrowserApprovalRequest(origin) {
   return {
@@ -87,7 +87,7 @@ function startJsonSocket(socketPath, handler) {
 }
 
 function startRepl(env = {}) {
-  const child = spawn(process.execPath, [nodeReplPath], {
+  const child = spawn(process.execPath, [browserAutomationPath], {
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -157,7 +157,7 @@ async function callCreateElicitationTool(repl, request) {
   return repl.request("tools/call", {
     name: "js",
     arguments: {
-      code: `return await nodeRepl.createElicitation(${JSON.stringify(request)});`,
+      code: `return await browserAutomation.createElicitation(${JSON.stringify(request)});`,
     },
   });
 }
@@ -186,7 +186,7 @@ async function withRepl(env, fn) {
   }
 }
 
-async function testNodeReplExposesEnvForBrowserClient() {
+async function testBrowserAutomationExposesEnvForBrowserClient() {
   await withRepl(
     {
       BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1",
@@ -197,8 +197,8 @@ async function testNodeReplExposesEnvForBrowserClient() {
         name: "js",
         arguments: {
           code: `return {
-            disableAmbientNetwork: nodeRepl.env?.BROWSER_USE_DISABLE_AMBIENT_NETWORK,
-            registry: nodeRepl.env?.CODEX_BROWSER_BACKENDS_REGISTRY,
+            disableAmbientNetwork: browserAutomation.env?.BROWSER_USE_DISABLE_AMBIENT_NETWORK,
+            registry: browserAutomation.env?.CODEX_BROWSER_BACKENDS_REGISTRY,
           };`,
         },
       });
@@ -212,8 +212,46 @@ async function testNodeReplExposesEnvForBrowserClient() {
   );
 }
 
-async function testNodeReplRecoversDesktopEnvFromSystemdUserEnvironment() {
-  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-node-repl-env-test-"));
+async function testBrowserAutomationExposesTrustedConfigForBrowserClient() {
+  await withRepl({}, async (repl) => {
+    const result = await repl.request("tools/call", {
+      name: "js",
+      arguments: {
+        code: `return {
+          hasConfig: browserAutomation.config != null,
+          runtime: browserAutomation.config?.runtime,
+          platform: browserAutomation.config?.platform,
+          version: browserAutomation.config?.version,
+          hasCreateElicitation: typeof browserAutomation.createElicitation === "function",
+        };`,
+      },
+    });
+    const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+    assert.equal(result.isError, undefined, text);
+    assert.deepEqual(JSON.parse(text), {
+      hasConfig: true,
+      runtime: "browser_automation",
+      platform: "linux",
+      version: "0.1.0-linux",
+      hasCreateElicitation: true,
+    });
+  });
+}
+
+async function testBrowserAutomationToolDescriptionNamesChromeEntrypoint() {
+  await withRepl({}, async (repl) => {
+    const result = await repl.request("tools/list", {});
+    const jsTool = result.tools.find((tool) => tool.name === "js");
+    assert.ok(jsTool, "Expected browser_automation to expose the js tool");
+    assert.match(jsTool.description, /Chrome and Browser plugins/);
+    assert.match(jsTool.description, /scripts\/browser-client\.mjs/);
+    assert.match(jsTool.description, /agent\.browsers\.get\("extension"\)/);
+    assert.match(jsTool.description, /do not fall back to Computer Use/i);
+  });
+}
+
+async function testBrowserAutomationRecoversDesktopEnvFromSystemdUserEnvironment() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-env-test-"));
   const binDir = path.join(tempDir, "bin");
   const systemctlPath = path.join(binDir, "systemctl");
   mkdirSync(binDir, { recursive: true });
@@ -250,19 +288,19 @@ exit 1
           name: "js",
           arguments: {
             code: `return {
-              nodeReplDisplay: nodeRepl.env?.DISPLAY,
+              browserAutomationDisplay: browserAutomation.env?.DISPLAY,
               processDisplay: process.env?.DISPLAY,
-              wayland: nodeRepl.env?.WAYLAND_DISPLAY,
-              xdg: nodeRepl.env?.XDG_RUNTIME_DIR,
-              dbus: nodeRepl.env?.DBUS_SESSION_BUS_ADDRESS,
-              xauthority: nodeRepl.env?.XAUTHORITY,
+              wayland: browserAutomation.env?.WAYLAND_DISPLAY,
+              xdg: browserAutomation.env?.XDG_RUNTIME_DIR,
+              dbus: browserAutomation.env?.DBUS_SESSION_BUS_ADDRESS,
+              xauthority: browserAutomation.env?.XAUTHORITY,
             };`,
           },
         });
         const text = result.content?.find((item) => item.type === "text")?.text ?? "";
         assert.equal(result.isError, undefined, text);
         assert.deepEqual(JSON.parse(text), {
-          nodeReplDisplay: ":77",
+          browserAutomationDisplay: ":77",
           processDisplay: ":77",
           wayland: "wayland-test",
           xdg: "/run/user/777",
@@ -395,8 +433,10 @@ async function testPublicOriginWithoutDesktopBridgeFailsClosed() {
   });
 }
 
-await testNodeReplExposesEnvForBrowserClient();
-await testNodeReplRecoversDesktopEnvFromSystemdUserEnvironment();
+await testBrowserAutomationExposesEnvForBrowserClient();
+await testBrowserAutomationExposesTrustedConfigForBrowserClient();
+await testBrowserAutomationToolDescriptionNamesChromeEntrypoint();
+await testBrowserAutomationRecoversDesktopEnvFromSystemdUserEnvironment();
 await testLocalOriginAcceptsWithoutClientApproval();
 await testDesktopApprovalAccepts();
 await testDesktopApprovalDeclines();
@@ -406,4 +446,4 @@ await testLocalFileTransferAcceptsWithoutClientApproval();
 await testInvalidBrowserApprovalFailsClosed();
 await testPublicOriginWithoutDesktopBridgeFailsClosed();
 
-console.error("[INFO] Linux node_repl browser approval tests passed");
+console.error("[INFO] Linux browser_automation browser approval tests passed");

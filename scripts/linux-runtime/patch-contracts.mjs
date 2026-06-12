@@ -19,6 +19,12 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "high",
     reason: "Generated image output artifact extraction is private webview conversation state.",
   },
+  "multi-window-second-instance": {
+    placement: PRIVATE_BUNDLE,
+    locatorStrategy: "retained current-upstream exact second-instance window handler anchor",
+    risk: "medium",
+    reason: "KRunner multi-window behavior is controlled by private Electron second-instance routing.",
+  },
   "native-titlebar": {
     placement: PRIVATE_BUNDLE,
     locatorStrategy: "retained current-upstream exact main IPC anchors plus preload bootstrap injection",

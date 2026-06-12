@@ -21,6 +21,10 @@ import { fileURLToPath } from "node:url";
 import { encodeFrame, FrameDecoder, parseFrame } from "./linux-browser-runtime/frame.mjs";
 import { COMMON_BROWSER_CLIENT_PATCHES } from "./linux-browser-runtime/browser-client-patches.mjs";
 import {
+  BROWSER_SKILL_GUIDANCE_PATCHES,
+  patchBrowserManifest,
+} from "./linux-browser-runtime/browser-plugin-patches.mjs";
+import {
   readBrowserBackendRegistry,
   registerBrowserBackend,
   writeBrowserBackendRegistry,
@@ -434,12 +438,20 @@ function copyAndPatchChromeFixture(tempDir) {
   const clientPath = path.join(chromeRoot, "scripts", "browser-client.mjs");
   const runningCheckPath = path.join(chromeRoot, "scripts", "chrome-is-running.js");
   const manifestCheckPath = path.join(chromeRoot, "scripts", "check-native-host-manifest.js");
+  const installManifestPath = path.join(chromeRoot, "scripts", "installManifest.mjs");
   const skillPath = path.join(chromeRoot, "skills", "control-chrome", "SKILL.md");
   if (
     readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY") &&
+    readFileSync(clientPath, "utf8").includes("browserAutomation") &&
+    !/globalThis\.nodeRepl|[$A-Z_a-z][$\w]*\.nodeRepl|outside node repl|privilegedNodeRepl/.test(
+      readFileSync(clientPath, "utf8"),
+    ) &&
+    /[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/.test(readFileSync(clientPath, "utf8")) &&
     readFileSync(runningCheckPath, "utf8").includes("isLinuxExtensionCapableChromeCommand") &&
     readFileSync(manifestCheckPath, "utf8").includes('process.platform === "linux"') &&
-    readFileSync(skillPath, "utf8").includes("Visible Tool Surface")
+    readFileSync(installManifestPath, "utf8").includes("browserAutomationPath") &&
+    readFileSync(skillPath, "utf8").includes("Visible Tool Surface") &&
+    !/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(readFileSync(skillPath, "utf8"))
   ) {
     return chromeRoot;
   }
@@ -458,19 +470,26 @@ function copyAndPatchChromeFixture(tempDir) {
 function testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols() {
   const syntheticSource = [
     'function alpha(){let bridge=globalThis.nodeRepl?.nativePipe;return bridge==null||typeof bridge.createConnection!="function"?null:bridge}',
-    'async function connectBackend(sock,make){let api=null,phase="pipe-connect";try{let transport=await NativePipe.create(sock);api=make(transport),phase="backend-info-request";let info=await api.getInfo(),full=await enrich(info).catch(err=>(log(err),info));return{browser:{id:crypto.randomUUID().substring(8),api:api,info:norm(await augment(full))}}}catch(problem){return await api?.close(),log(problem),{failure:`${phase}/${fmt(problem)}`}}}',
+    'function beta(e){let mode=globalThis.nodeRepl?.env.MODE;return e.nodeRepl?.setResponseMeta({mode}),mode}',
+    'function gamma({internalBuild:e=!1,privilegedNodeRepl:t=readGlobal()}={}){if(t==null)return fail("Browser security unavailable outside node repl");return t}',
+    'async function connectBackend(sock,make){let api=null,phase="pipe-connect";try{let transport=await NativePipe.create(sock);api=make(transport),phase="backend-info-request";let info=await withTimeout(api.getInfo()),full=await enrich(info).catch(err=>(log(err),info));return{browser:{id:crypto.randomUUID().substring(8),api:api,info:await augment(full)}}}catch(problem){return await api?.close(),log(problem),{failure:`${phase}/${fmt(problem)}`}}}',
     'var discover=()=>platform()==="win32"?readWin():readLinux(),readLinux=async()=>(await readdir(prefix)).map(entry=>Path.resolve(prefix,entry)),readWin=async()=>{let root="\\\\.\\pipe\\";return(await readdir(root)).map(winEntry=>Path.resolve(root,winEntry)).filter(candidate=>candidate.startsWith(prefix))};',
     'let pending=this.api.moveMouse({tabId:tab,...opts.waitForArrival===!1?{waitForArrival:!1}:{},x:px,y:py});if(opts.waitForArrival===!1){pending.catch(()=>{});return}await pending',
     'async clickPoint(event){let tab=normalize(event.tabId),timeout=normalizeTimeout({timeout_ms:event.timeoutMs}),button=event.button??"left",targets=event.loadTarget==null||!isLoad(event.loadTarget)?[tab]:[event.loadTarget,tab],wait=Promise.all(targets.map(async target=>this.cdp.waitForPageLoadEvent(target,{timeoutMs:timeout}))),ignored=wait.catch(()=>{});try{await this.dispatchMouseMove(tab,event.point,event.modifiers);for(let idx=1;idx<=event.clickCount;idx+=1)await this.dispatchMouseDown({button:button,clickCount:idx,modifiers:event.modifiers,point:event.point,tabId:tab}),await this.dispatchMouseUp({button:button,clickCount:idx,modifiers:event.modifiers,point:event.point,tabId:tab})}catch(err){throw await ignored,err}await wait}async dispatchMouseDown(',
+    'var profileRoot=resolve(homeDir(),platform()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");',
   ].join(";");
 
   const patched = patchSource(syntheticSource, COMMON_BROWSER_CLIENT_PATCHES, "synthetic browser-client");
   for (const marker of [
     "globalThis.__codexNativePipe",
+    "globalThis.browserAutomation",
+    "privilegedBrowserAutomation",
+    "outside browser automation",
     "browser backend info request timed out",
     "CODEX_BROWSER_BACKENDS_REGISTRY",
     "waitForArrival:!1",
     "this.ui.moveMouse",
+    '==="linux"?".config/google-chrome"',
   ]) {
     assert.equal(patched.includes(marker), true, `patched source should include ${marker}`);
   }
@@ -493,6 +512,11 @@ async function testPatchedBrowserClientStaticMarkers() {
     assert.equal(clientSource.includes('/proc/${l.ppid}/environ'), true);
     assert.equal(clientSource.includes("browser backend registry type mismatch"), true);
     assert.equal(clientSource.includes("browser backend info request timed out"), true);
+    assert.equal(clientSource.includes("browserAutomation"), true);
+    assert.equal(/globalThis\.nodeRepl|[$A-Z_a-z][$\w]*\.nodeRepl/.test(clientSource), false);
+    assert.equal(clientSource.includes("NodeRepl"), false);
+    assert.equal(clientSource.includes("outside node repl"), false);
+    assert.match(clientSource, /[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/);
     assert.equal(clientSource.includes('type:"mouseMoved",x:t.point.x,y:t.point.y,button:"none"'), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -557,7 +581,7 @@ EOF
   }
 }
 
-async function testPatchedChromeSkillMakesNodeReplToolSurfaceExplicit() {
+async function testPatchedChromeSkillUsesBrowserAutomationToolSurface() {
   const tempDir = makeTempDir("codex-chrome-skill-guidance-");
   try {
     const chromeRoot = copyAndPatchChromeFixture(tempDir);
@@ -569,6 +593,44 @@ async function testPatchedChromeSkillMakesNodeReplToolSurfaceExplicit() {
     assert.equal(skillSource.includes("not `browser.tabs.create()`"), true);
     assert.equal(skillSource.includes("tab.playwright.locator"), true);
     assert.equal(skillSource.includes("not `tab.locator(...)`"), true);
+    assert.equal(skillSource.includes("browser_automation"), true);
+    assert.equal(skillSource.includes("mcp__browser_automation__js"), true);
+    assert.equal(skillSource.includes("browserAutomation.write"), true);
+    assert.equal(/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(skillSource), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function testPatchedBrowserSkillUsesBrowserAutomationToolSurface() {
+  const syntheticSource = [
+    "Never mention `Node REPL`, `node_repl`, `REPL`, JavaScript sessions, or module exports unless a user is asking for that exact information.",
+    "Run browser setup code through the Node REPL `js` tool.",
+    "The callable tool id typically appears as `mcp__node_repl__js`.",
+    "Run this once per fresh `node_repl` session.",
+    "nodeRepl.emitImage({ type: `image` });",
+    "In `node_repl` you can use Node filesystem libraries when needed.",
+  ].join("\n");
+
+  const patched = patchSource(syntheticSource, BROWSER_SKILL_GUIDANCE_PATCHES, "synthetic browser skill");
+  assert.equal(patched.includes("browser_automation"), true);
+  assert.equal(patched.includes("mcp__browser_automation__js"), true);
+  assert.equal(patched.includes("browserAutomation.emitImage"), true);
+  assert.equal(/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(patched), false);
+}
+
+function testPatchedBrowserManifestUsesBrowserAutomationKeyword() {
+  const tempDir = makeTempDir("codex-browser-manifest-");
+  try {
+    const manifestPath = path.join(tempDir, "plugin.json");
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({ name: "browser", keywords: ["browser", "node-repl"] }, null, 2)}\n`,
+    );
+    patchBrowserManifest(manifestPath);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.keywords.includes("node-repl"), false);
+    assert.equal(manifest.keywords.includes("browser-automation"), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -610,7 +672,7 @@ async function testPatchedBrowserClientRegistryDiscovery() {
 
     process.env.CODEX_BROWSER_BACKENDS_REGISTRY = registryPath;
     globalThis.__codexNativePipe = { createConnection: (socketPath) => net.createConnection(socketPath) };
-    globalThis.nodeRepl = {
+    globalThis.browserAutomation = {
       env: { BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1" },
       requestMeta: {
         "x-codex-turn-metadata": { session_id: "linux-browser-runtime-test", turn_id: "turn" },
@@ -631,7 +693,7 @@ async function testPatchedBrowserClientRegistryDiscovery() {
     process.exit = originalExit;
     delete process.env.CODEX_BROWSER_BACKENDS_REGISTRY;
     delete globalThis.__codexNativePipe;
-    delete globalThis.nodeRepl;
+    delete globalThis.browserAutomation;
     await extensionBackend.close();
     await hangBackend.close();
     rmSync(tempDir, { recursive: true, force: true });
@@ -646,7 +708,9 @@ await testNativeHostTimesOutMissingChromeResponse();
 testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols();
 await testPatchedBrowserClientStaticMarkers();
 await testPatchedChromeRunningCheckerIgnoresExtensionlessLinuxChrome();
-await testPatchedChromeSkillMakesNodeReplToolSurfaceExplicit();
+await testPatchedChromeSkillUsesBrowserAutomationToolSurface();
+testPatchedBrowserSkillUsesBrowserAutomationToolSurface();
+testPatchedBrowserManifestUsesBrowserAutomationKeyword();
 await testPatchedBrowserClientRegistryDiscovery();
 
 console.error("[INFO] Linux browser runtime tests passed");

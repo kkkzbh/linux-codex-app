@@ -27,7 +27,7 @@ SEVENZIP_BIN="${CODEX_SEVENZIP:-7z}"
 LINUX_BUNDLED_PLUGIN_NAMES=("browser" "chrome" "latex")
 LINUX_LOCAL_PLUGIN_NAMES=("dolphin" "kitty" "kde-computer-use=computer-use")
 LINUX_LOCAL_PLUGIN_SOURCE_ROOT="$SCRIPT_DIR/plugins"
-LINUX_NODE_REPL_SOURCE="$SCRIPT_DIR/scripts/linux-node-repl.mjs"
+LINUX_BROWSER_AUTOMATION_SOURCE="$SCRIPT_DIR/scripts/linux-browser-automation.mjs"
 LINUX_BROWSER_RUNTIME_DIR="$SCRIPT_DIR/scripts/linux-browser-runtime"
 LINUX_CHROME_EXTENSION_HOST_SOURCE="$LINUX_BROWSER_RUNTIME_DIR/chrome-extension-host.mjs"
 REFRESH_DMG=0
@@ -216,7 +216,7 @@ extract_dmg() {
     local dmg_path="$1"
     info "Extracting DMG with 7z..."
 
-    "$SEVENZIP_BIN" x -y "$dmg_path" -o"$WORK_DIR/dmg-extract" >&2 || \
+    "$SEVENZIP_BIN" x -snld -y "$dmg_path" -o"$WORK_DIR/dmg-extract" >&2 || \
         error "Failed to extract DMG"
 
     local app_dir
@@ -334,9 +334,9 @@ copy_bundled_plugins() {
 
     find "$dest_root" -name '*:com.apple.*' -delete 2>/dev/null || true
 
-    if [ -f "$dest_root/plugins/browser/scripts/browser-client.mjs" ]; then
+    if [ -d "$dest_root/plugins/browser" ]; then
         node "$SCRIPT_DIR/scripts/patch-browser-use-plugin.mjs" \
-            "$dest_root/plugins/browser/scripts/browser-client.mjs"
+            "$dest_root/plugins/browser"
     fi
 
     if [ -d "$dest_root/plugins/chrome" ]; then
@@ -498,8 +498,8 @@ install_app() {
     if [ -d "$WORK_DIR/plugins" ]; then
         cp -r "$WORK_DIR/plugins" "$INSTALL_DIR/resources/"
     fi
-    cp "$LINUX_NODE_REPL_SOURCE" "$INSTALL_DIR/resources/node_repl"
-    chmod +x "$INSTALL_DIR/resources/node_repl"
+    cp "$LINUX_BROWSER_AUTOMATION_SOURCE" "$INSTALL_DIR/resources/browser_automation"
+    chmod +x "$INSTALL_DIR/resources/browser_automation"
     install_runtime_helper_wrappers
     info "app.asar installed"
 }
@@ -536,12 +536,12 @@ if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ] && [ -x "$PRIMARY_RUNTIME_NODE" ]; 
     export CODEX_BROWSER_USE_NODE_PATH="$PRIMARY_RUNTIME_NODE"
 fi
 
-if [ -z "${CODEX_NODE_REPL_PATH:-}" ] && [ -x "$SCRIPT_DIR/resources/node_repl" ]; then
-    export CODEX_NODE_REPL_PATH="$SCRIPT_DIR/resources/node_repl"
+if [ -z "${CODEX_BROWSER_AUTOMATION_PATH:-}" ] && [ -x "$SCRIPT_DIR/resources/browser_automation" ]; then
+    export CODEX_BROWSER_AUTOMATION_PATH="$SCRIPT_DIR/resources/browser_automation"
 fi
 
-if [ "${CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE:-}" = "1" ] && [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
-    echo "Warning: Linux Browser Use is enabled but CODEX_NODE_REPL_PATH is not set and resources/node_repl is missing." >&2
+if [ "${CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE:-}" = "1" ] && [ -z "${CODEX_BROWSER_AUTOMATION_PATH:-}" ]; then
+    echo "Warning: Linux Browser Use is enabled but CODEX_BROWSER_AUTOMATION_PATH is not set and resources/browser_automation is missing." >&2
 fi
 
 if [ -z "${CODEX_CLI_PATH:-}" ] || [ ! -x "$CODEX_CLI_PATH" ]; then

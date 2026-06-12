@@ -26,6 +26,32 @@ function findAssetFileContaining(baseDir, pattern, requiredContent, description)
   return path.join(baseDir, fileName);
 }
 
+function matchesContentGroups(source, requiredContentGroups) {
+  return requiredContentGroups.every((group) => {
+    const alternatives = Array.isArray(group) ? group : [group];
+    return alternatives.some((requiredContent) => source.includes(requiredContent));
+  });
+}
+
+function findAssetFileContainingGroups(baseDir, pattern, requiredContentGroups, description) {
+  const fileNames = readdirSync(baseDir).filter((entry) => pattern.test(entry));
+  const matches = fileNames.filter((entry) => {
+    const source = readFileSync(path.join(baseDir, entry), "utf8");
+    return matchesContentGroups(source, requiredContentGroups);
+  });
+
+  if (matches.length === 0) {
+    throw new Error(`Expected ${description} bundle not found in: ${baseDir}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `Expected exactly one ${description} bundle in ${baseDir}; matched: ${matches.join(", ")}`,
+    );
+  }
+
+  return path.join(baseDir, matches[0]);
+}
+
 export function createLinuxPatchContext(extractedAppDir) {
   if (!extractedAppDir) {
     throw new Error("Expected extracted app directory");
@@ -37,7 +63,36 @@ export function createLinuxPatchContext(extractedAppDir) {
   const webviewHtmlPath = path.join(webviewDir, "index.html");
   const mainPath = findAssetFile(buildDir, /^main(?:-[^.]+)?\.js$/, "main");
   const preloadPath = findAssetFile(buildDir, /^preload(?:-[^.]+)?\.js$/, "preload");
+  const workerPath = findAssetFile(buildDir, /^worker\.js$/, "worker");
+  const buildBrowserRuntimeSourcePath = findAssetFileContainingGroups(
+    buildDir,
+    /^src-[^.]+\.js$/,
+    [
+      "mcp_servers.${",
+      ["node_repl", "browser_automation"],
+      ["nodeReplPath", "browserAutomationPath"],
+      ["NODE_REPL_NODE_PATH", "BROWSER_AUTOMATION_NODE_PATH"],
+    ],
+    "build browser runtime source",
+  );
+  const buildChromeNativeHostSourcePath = findAssetFileContainingGroups(
+    buildDir,
+    /^src-[^.]+\.js$/,
+    [
+      ["chrome-native", "browser_automation"],
+      ["NativeMessaging", "browserAutomationPath"],
+      ["nodeReplPath", "browserAutomationPath"],
+      ["NODE_REPL_NODE_PATH", "BROWSER_AUTOMATION_NODE_PATH"],
+    ],
+    "build Chrome native host source",
+  );
   const webviewIndexPath = findAssetFile(webviewAssetsDir, /^index-[^.]+\.js$/, "webview index");
+  const webviewCoreSourcePath = findAssetFileContainingGroups(
+    webviewAssetsDir,
+    /^src-[^.]+\.js$/,
+    [["nodeReplPath", "browserAutomationPath"], ["nodeRepl.write", "browserAutomation.write"]],
+    "webview core source",
+  );
   const webviewCollaborationModePath = findAssetFile(
     webviewAssetsDir,
     /^use-model-settings-[^.]+\.js$/,
@@ -61,7 +116,7 @@ export function createLinuxPatchContext(extractedAppDir) {
   const webviewComputerUseProviderSettingsPath = findAssetFileContaining(
     webviewAssetsDir,
     /^browser-use-settings-[^.]+\.js$/,
-    "r.find(e=>s(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)",
+    "r.find(e=>O(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)",
     "webview computer use provider settings",
   );
   const webviewPluginFeatureGatePath = findAssetFile(
@@ -114,6 +169,24 @@ export function createLinuxPatchContext(extractedAppDir) {
     "plugins.installModal.openBrowserExtension",
     "webview plugin availability",
   );
+  const webviewAppServerManagerSignalsPath = findAssetFileContainingGroups(
+    webviewAssetsDir,
+    /^app-server-manager-signals-[^.]+\.js$/,
+    [["node-repl-active-execs-kill", "browser-automation-active-execs-kill"], ["node_repl", "browser_automation"]],
+    "webview app server manager signals",
+  );
+  const webviewDebugModalPath = findAssetFileContainingGroups(
+    webviewAssetsDir,
+    /^debug-modal-[^.]+\.js$/,
+    [["node_repl", "browser_automation"], ["Node REPL", "browser_automation"]],
+    "webview debug modal",
+  );
+  const webviewSplitItemsIntoRenderGroupsPath = findAssetFileContainingGroups(
+    webviewAssetsDir,
+    /^split-items-into-render-groups-[^.]+\.js$/,
+    [["e.invocation.server===`node_repl`", "e.invocation.server===`browser_automation`"]],
+    "webview render group splitter",
+  );
   const webviewPluginDetailPath = findAssetFileContaining(
     webviewAssetsDir,
     /^plugin-detail-page-[^.]+\.js$/,
@@ -132,8 +205,12 @@ export function createLinuxPatchContext(extractedAppDir) {
     buildDir,
     mainPath,
     preloadPath,
+    workerPath,
+    buildBrowserRuntimeSourcePath,
+    buildChromeNativeHostSourcePath,
     webviewHtmlPath,
     webviewIndexPath,
+    webviewCoreSourcePath,
     webviewCollaborationModePath,
     webviewComposerPath,
     webviewSettingsPagePath,
@@ -148,6 +225,9 @@ export function createLinuxPatchContext(extractedAppDir) {
     webviewDiffAnnotationsPath,
     webviewAvatarOverlayPath,
     webviewPluginAvailabilityPath,
+    webviewAppServerManagerSignalsPath,
+    webviewDebugModalPath,
+    webviewSplitItemsIntoRenderGroupsPath,
     webviewPluginDetailPath,
     webviewRemoteConnectionVisibilityPath,
     webviewRemoteControlConnectionsVisibilityPath,
@@ -163,11 +243,35 @@ export function createLinuxPatchContext(extractedAppDir) {
     writePreloadSource(source) {
       writeFileSync(preloadPath, source);
     },
+    readWorkerSource() {
+      return readFileSync(workerPath, "utf8");
+    },
+    writeWorkerSource(source) {
+      writeFileSync(workerPath, source);
+    },
+    readBuildBrowserRuntimeSource() {
+      return readFileSync(buildBrowserRuntimeSourcePath, "utf8");
+    },
+    writeBuildBrowserRuntimeSource(source) {
+      writeFileSync(buildBrowserRuntimeSourcePath, source);
+    },
+    readBuildChromeNativeHostSource() {
+      return readFileSync(buildChromeNativeHostSourcePath, "utf8");
+    },
+    writeBuildChromeNativeHostSource(source) {
+      writeFileSync(buildChromeNativeHostSourcePath, source);
+    },
     readWebviewIndexSource() {
       return readFileSync(webviewIndexPath, "utf8");
     },
     writeWebviewIndexSource(source) {
       writeFileSync(webviewIndexPath, source);
+    },
+    readWebviewCoreSourceSource() {
+      return readFileSync(webviewCoreSourcePath, "utf8");
+    },
+    writeWebviewCoreSourceSource(source) {
+      writeFileSync(webviewCoreSourcePath, source);
     },
     readWebviewHtmlSource() {
       return readFileSync(webviewHtmlPath, "utf8");
@@ -259,6 +363,24 @@ export function createLinuxPatchContext(extractedAppDir) {
     writeWebviewPluginAvailabilitySource(source) {
       writeFileSync(webviewPluginAvailabilityPath, source);
     },
+    readWebviewAppServerManagerSignalsSource() {
+      return readFileSync(webviewAppServerManagerSignalsPath, "utf8");
+    },
+    writeWebviewAppServerManagerSignalsSource(source) {
+      writeFileSync(webviewAppServerManagerSignalsPath, source);
+    },
+    readWebviewDebugModalSource() {
+      return readFileSync(webviewDebugModalPath, "utf8");
+    },
+    writeWebviewDebugModalSource(source) {
+      writeFileSync(webviewDebugModalPath, source);
+    },
+    readWebviewSplitItemsIntoRenderGroupsSource() {
+      return readFileSync(webviewSplitItemsIntoRenderGroupsPath, "utf8");
+    },
+    writeWebviewSplitItemsIntoRenderGroupsSource(source) {
+      writeFileSync(webviewSplitItemsIntoRenderGroupsPath, source);
+    },
     readWebviewPluginDetailSource() {
       return readFileSync(webviewPluginDetailPath, "utf8");
     },
@@ -281,8 +403,12 @@ export function createLinuxPatchContext(extractedAppDir) {
       return {
         main: readFileSync(mainPath, "utf8"),
         preload: readFileSync(preloadPath, "utf8"),
+        worker: readFileSync(workerPath, "utf8"),
+        buildBrowserRuntimeSource: readFileSync(buildBrowserRuntimeSourcePath, "utf8"),
+        buildChromeNativeHostSource: readFileSync(buildChromeNativeHostSourcePath, "utf8"),
         webviewHtml: readFileSync(webviewHtmlPath, "utf8"),
         webviewIndex: readFileSync(webviewIndexPath, "utf8"),
+        webviewCoreSource: readFileSync(webviewCoreSourcePath, "utf8"),
         webviewModelSettings: readFileSync(webviewCollaborationModePath, "utf8"),
         webviewComposer: readFileSync(webviewComposerPath, "utf8"),
         webviewSettingsPage: readFileSync(webviewSettingsPagePath, "utf8"),
@@ -300,6 +426,12 @@ export function createLinuxPatchContext(extractedAppDir) {
         webviewDiffAnnotations: readFileSync(webviewDiffAnnotationsPath, "utf8"),
         webviewAvatarOverlay: readFileSync(webviewAvatarOverlayPath, "utf8"),
         webviewPluginAvailability: readFileSync(webviewPluginAvailabilityPath, "utf8"),
+        webviewAppServerManagerSignals: readFileSync(webviewAppServerManagerSignalsPath, "utf8"),
+        webviewDebugModal: readFileSync(webviewDebugModalPath, "utf8"),
+        webviewSplitItemsIntoRenderGroups: readFileSync(
+          webviewSplitItemsIntoRenderGroupsPath,
+          "utf8",
+        ),
         webviewPluginDetail: readFileSync(webviewPluginDetailPath, "utf8"),
         webviewRemoteConnectionVisibility: readFileSync(webviewRemoteConnectionVisibilityPath, "utf8"),
         webviewRemoteControlConnectionsVisibility: readFileSync(
@@ -317,11 +449,23 @@ export function createLinuxPatchContext(extractedAppDir) {
           "Expected shared webview plugin availability and remote-control visibility sources to stay in sync",
         );
       }
+      if (
+        buildBrowserRuntimeSourcePath === buildChromeNativeHostSourcePath &&
+        sources.buildBrowserRuntimeSource !== sources.buildChromeNativeHostSource
+      ) {
+        throw new Error(
+          "Expected shared build browser runtime and Chrome native host sources to stay in sync",
+        );
+      }
 
       writeFileSync(mainPath, sources.main);
       writeFileSync(preloadPath, sources.preload);
+      writeFileSync(workerPath, sources.worker);
+      writeFileSync(buildBrowserRuntimeSourcePath, sources.buildBrowserRuntimeSource);
+      writeFileSync(buildChromeNativeHostSourcePath, sources.buildChromeNativeHostSource);
       writeFileSync(webviewHtmlPath, sources.webviewHtml);
       writeFileSync(webviewIndexPath, sources.webviewIndex);
+      writeFileSync(webviewCoreSourcePath, sources.webviewCoreSource);
       writeFileSync(webviewCollaborationModePath, sources.webviewModelSettings);
       writeFileSync(webviewComposerPath, sources.webviewComposer);
       writeFileSync(webviewSettingsPagePath, sources.webviewSettingsPage);
@@ -339,6 +483,9 @@ export function createLinuxPatchContext(extractedAppDir) {
       writeFileSync(webviewDiffAnnotationsPath, sources.webviewDiffAnnotations);
       writeFileSync(webviewAvatarOverlayPath, sources.webviewAvatarOverlay);
       writeFileSync(webviewPluginAvailabilityPath, sources.webviewPluginAvailability);
+      writeFileSync(webviewAppServerManagerSignalsPath, sources.webviewAppServerManagerSignals);
+      writeFileSync(webviewDebugModalPath, sources.webviewDebugModal);
+      writeFileSync(webviewSplitItemsIntoRenderGroupsPath, sources.webviewSplitItemsIntoRenderGroups);
       writeFileSync(webviewPluginDetailPath, sources.webviewPluginDetail);
       writeFileSync(webviewRemoteConnectionVisibilityPath, sources.webviewRemoteConnectionVisibility);
       writeFileSync(
@@ -361,7 +508,11 @@ export function createLinuxPatchContext(extractedAppDir) {
     verifyBundleSyntax() {
       this.verifyJavaScript(mainPath);
       this.verifyJavaScript(preloadPath);
+      this.verifyJavaScript(workerPath);
+      this.verifyJavaScript(buildBrowserRuntimeSourcePath);
+      this.verifyJavaScript(buildChromeNativeHostSourcePath);
       this.verifyJavaScript(webviewIndexPath);
+      this.verifyJavaScript(webviewCoreSourcePath);
       this.verifyJavaScript(webviewCollaborationModePath);
       this.verifyJavaScript(webviewComposerPath);
       this.verifyJavaScript(webviewSettingsPagePath);
@@ -376,6 +527,9 @@ export function createLinuxPatchContext(extractedAppDir) {
       this.verifyJavaScript(webviewDiffAnnotationsPath);
       this.verifyJavaScript(webviewAvatarOverlayPath);
       this.verifyJavaScript(webviewPluginAvailabilityPath);
+      this.verifyJavaScript(webviewAppServerManagerSignalsPath);
+      this.verifyJavaScript(webviewDebugModalPath);
+      this.verifyJavaScript(webviewSplitItemsIntoRenderGroupsPath);
       this.verifyJavaScript(webviewPluginDetailPath);
       this.verifyJavaScript(webviewRemoteConnectionVisibilityPath);
       this.verifyJavaScript(webviewRemoteControlConnectionsVisibilityPath);

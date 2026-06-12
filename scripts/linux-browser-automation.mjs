@@ -9,15 +9,27 @@ import net from "node:net";
 import process from "node:process";
 
 const serverInfo = {
-  name: "node_repl",
+  name: "browser_automation",
   version: "0.1.0-linux",
 };
+
+const browserAutomationConfig = Object.freeze({
+  runtime: "browser_automation",
+  platform: "linux",
+  version: serverInfo.version,
+});
 
 const tools = [
   {
     name: "js",
     description:
-      "Run JavaScript in a persistent Node-backed kernel with top-level await. This is the JavaScript execution tool for the node_repl MCP server.",
+      [
+        "Run JavaScript in a persistent Node-backed kernel with top-level await.",
+        "This is the JavaScript execution tool for the browser_automation MCP server.",
+        "For the Chrome and Browser plugins, this is also the expected browser automation entrypoint:",
+        "read the relevant Chrome/Browser skill, import that plugin's scripts/browser-client.mjs, call setupBrowserRuntime({ globals: globalThis }), then use agent.browsers.get(\"extension\") for Chrome or the Browser skill's backend for the in-app browser.",
+        "Do not conclude that Chrome is unavailable, and do not fall back to Computer Use, merely because separate Chrome-specific click/type/navigate/screenshot tools are not visible.",
+      ].join(" "),
     inputSchema: {
       type: "object",
       properties: {
@@ -57,7 +69,7 @@ const DESKTOP_ENV_KEYS = [
 ];
 
 let currentExec = null;
-let nodeReplEnv = createNodeReplEnv();
+let browserAutomationEnv = createBrowserAutomationEnv();
 let kernel = createKernel();
 let jsQueue = Promise.resolve();
 
@@ -135,7 +147,7 @@ function readSystemdUserEnv() {
   }
 }
 
-function createNodeReplEnv() {
+function createBrowserAutomationEnv() {
   const env = { ...process.env };
   mergeMissingEnv(env, readSystemdUserEnv(), DESKTOP_ENV_KEYS);
   mergeMissingEnv(env, readParentProcessEnv(), DESKTOP_ENV_KEYS);
@@ -165,9 +177,10 @@ function createKernel() {
     },
   };
 
-  const nodeRepl = {
+  const browserAutomation = {
+    config: browserAutomationConfig,
     cwd: process.cwd(),
-    env: nodeReplEnv,
+    env: browserAutomationEnv,
     homeDir: homedir(),
     tmpDir: tmpdir(),
     get requestMeta() {
@@ -197,7 +210,7 @@ function createKernel() {
 
   Object.assign(globalThis, {
     __codexNativePipe: nativePipe,
-    nodeRepl,
+    browserAutomation,
   });
 
   Object.assign(sandbox, {
@@ -214,7 +227,7 @@ function createKernel() {
     fetch,
     global: sandbox,
     globalThis: sandbox,
-    nodeRepl,
+    browserAutomation,
     process: createProcessShim(),
     setInterval,
     setTimeout,
@@ -228,11 +241,11 @@ function createProcessShim() {
   const listeners = new Map();
 
   return {
-    env: nodeReplEnv,
+    env: browserAutomationEnv,
     version: process.version,
     versions: process.versions,
     pid: process.pid,
-    argv: ["node", "node_repl"],
+    argv: ["node", "browser_automation"],
     cwd: () => process.cwd(),
     uptime: () => process.uptime(),
     memoryUsage: () => process.memoryUsage(),
@@ -284,12 +297,12 @@ function formatValue(value) {
 async function normalizeImage(value) {
   if (typeof value === "string") {
     if (!value.startsWith("data:image/")) {
-      throw new Error("nodeRepl.emitImage only accepts image/* data URLs");
+      throw new Error("browserAutomation.emitImage only accepts image/* data URLs");
     }
 
     const [meta, base64] = value.split(",", 2);
     if (!base64 || !meta.includes(";base64")) {
-      throw new Error("nodeRepl.emitImage received a malformed data URL");
+      throw new Error("browserAutomation.emitImage received a malformed data URL");
     }
 
     return {
@@ -300,12 +313,12 @@ async function normalizeImage(value) {
   }
 
   if (!value || typeof value !== "object") {
-    throw new Error("nodeRepl.emitImage received an unsupported value");
+    throw new Error("browserAutomation.emitImage received an unsupported value");
   }
 
   const mimeType = value.mimeType;
   if (typeof mimeType !== "string" || !mimeType.startsWith("image/")) {
-    throw new Error("nodeRepl.emitImage expected an image/* mimeType");
+    throw new Error("browserAutomation.emitImage expected an image/* mimeType");
   }
 
   const bytes = value.bytes;
@@ -317,7 +330,7 @@ async function normalizeImage(value) {
       ArrayBuffer.isView(bytes)
     )
   ) {
-    throw new Error("nodeRepl.emitImage expected bytes to be Buffer, Uint8Array, ArrayBuffer, or ArrayBufferView");
+    throw new Error("browserAutomation.emitImage expected bytes to be Buffer, Uint8Array, ArrayBuffer, or ArrayBufferView");
   }
 
   return {
@@ -344,11 +357,11 @@ async function createElicitation(request) {
 
 function normalizeElicitationRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("nodeRepl.createElicitation expected a request object");
+    throw new Error("browserAutomation.createElicitation expected a request object");
   }
 
   if (typeof value.message !== "string" || value.message.trim() === "") {
-    throw new Error("nodeRepl.createElicitation expected a non-empty message");
+    throw new Error("browserAutomation.createElicitation expected a non-empty message");
   }
 
   return {
@@ -429,7 +442,7 @@ async function requestDesktopBrowserApproval(request) {
   const socketPath = getDesktopSocketEnv("CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET");
   if (!socketPath) {
     throw new Error(
-      "Linux browser approval bridge unavailable: CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET is not set in node_repl or parent app-server environment",
+      "Linux browser approval bridge unavailable: CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET is not set in browser_automation or parent app-server environment",
     );
   }
 
@@ -467,7 +480,7 @@ async function limitedFetch(url, init = {}) {
     parsed.pathname !== "/backend-api/aura/site_status" ||
     method !== "GET"
   ) {
-    throw new Error("nodeRepl.fetch URL is not allowlisted");
+    throw new Error("browserAutomation.fetch URL is not allowlisted");
   }
 
   return fetchViaCodexDesktop(parsed);
@@ -477,7 +490,7 @@ async function fetchViaCodexDesktop(parsed) {
   const socketPath = getDesktopSocketEnv("CODEX_DESKTOP_AUTH_FETCH_SOCKET");
   if (!socketPath) {
     throw new Error(
-      "Codex desktop auth fetch unavailable: CODEX_DESKTOP_AUTH_FETCH_SOCKET is not set in node_repl or parent app-server environment",
+      "Codex desktop auth fetch unavailable: CODEX_DESKTOP_AUTH_FETCH_SOCKET is not set in browser_automation or parent app-server environment",
     );
   }
 
@@ -539,7 +552,7 @@ async function requestUnixJson(socketPath, payload, options = {}) {
 }
 
 function getDesktopSocketEnv(name) {
-  const direct = nodeReplEnv[name] ?? process.env[name];
+  const direct = browserAutomationEnv[name] ?? process.env[name];
   if (direct && direct.trim()) {
     return direct;
   }
@@ -560,7 +573,7 @@ function getDesktopSocketEnv(name) {
       }
       const value = entry.slice(separator + 1);
       if (value.trim()) {
-        nodeReplEnv[name] = value;
+        browserAutomationEnv[name] = value;
         process.env[name] = value;
         return value;
       }
@@ -641,7 +654,7 @@ function buildToolResult(state) {
 }
 
 function resetKernel() {
-  nodeReplEnv = createNodeReplEnv();
+  browserAutomationEnv = createBrowserAutomationEnv();
   kernel = createKernel();
   return { content: [{ type: "text", text: "js execution reset" }] };
 }
