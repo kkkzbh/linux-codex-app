@@ -1,14 +1,14 @@
 import { FEATURE_MARKERS } from "../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
-const upstreamCompatiblePlatform = "function d(e){return e===`macOS`||e===`windows`}";
+const upstreamCompatiblePlatform = "function _(e){return e===`macOS`||e===`windows`}";
 const linuxCompatiblePlatform =
-  "function d(e){return e===`macOS`||e===`windows`||e===`linux`}";
+  "function _(e){return e===`macOS`||e===`windows`||e===`linux`}";
 
 const upstreamComputerUseGate =
-  "isComputerUseGateEnabled:f,isHostCompatiblePlatform:d(c),isPlatformLoading:o,windowType:`electron`";
+  "isComputerUseGateEnabled:s,isHostCompatiblePlatform:_(o),isPlatformLoading:a,windowType:`electron`";
 const linuxComputerUseGate =
-  "isComputerUseGateEnabled:f||c===`linux`,isHostCompatiblePlatform:d(c),isPlatformLoading:o,windowType:`electron`";
+  "isComputerUseGateEnabled:s||o===`linux`,isHostCompatiblePlatform:_(o),isPlatformLoading:a,windowType:`electron`";
 
 export const computerUseAvailabilityFeature = {
   id: "computer-use-availability",

@@ -7,11 +7,15 @@ REPO_ROOT="$(cd "$INSTALLER_DIR/.." && pwd)"
 INSTALL_SCRIPT="$INSTALLER_DIR/install.sh"
 VERIFY_SCRIPT="$SCRIPT_DIR/verify-install.sh"
 ACTIVATE_SCRIPT="$SCRIPT_DIR/activate-install.sh"
+PRUNE_STAGED_INSTALLS_SCRIPT="$SCRIPT_DIR/prune-staged-installs.sh"
 STAGING_ROOT="$REPO_ROOT/staged-installs"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+ACTIVE_LINK="${CODEX_APP_ACTIVE_LINK:-$DATA_HOME/codex-app/current}"
 STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 LOG_DIR="${CODEX_APP_LOG_DIR:-$STATE_HOME/codex-app}"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 LOG_PATH="$LOG_DIR/silent-update-$RUN_ID.log"
+VERIFIED_MARKER=".codex-linux-verified"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -44,6 +48,26 @@ trap on_error ERR
 
 AUTO_ACTIVATE=1
 INSTALL_ARGS=()
+
+mark_verified_install() {
+    local install_dir="$1"
+    local marker_path="$install_dir/$VERIFIED_MARKER"
+    {
+        printf 'verified_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        printf 'install_dir=%s\n' "$install_dir"
+    } > "$marker_path"
+}
+
+prune_staged_installs_for_verified_pin() {
+    local install_dir="$1"
+
+    [ "${CODEX_STAGED_INSTALLS_PRUNE:-1}" != "0" ] || return 0
+    [ -x "$PRUNE_STAGED_INSTALLS_SCRIPT" ] || error "Expected executable staged install prune helper: $PRUNE_STAGED_INSTALLS_SCRIPT"
+    "$PRUNE_STAGED_INSTALLS_SCRIPT" \
+        --staging-root "$STAGING_ROOT" \
+        --active-link "$ACTIVE_LINK" \
+        --pin "$install_dir"
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -104,6 +128,8 @@ if [ "$AUTO_ACTIVATE" -eq 1 ]; then
     "$ACTIVATE_SCRIPT" "$NEW_INSTALL_DIR"
     warn "Any Codex instance already running keeps its current binaries. The activated build is used on the next launch."
 else
+    mark_verified_install "$NEW_INSTALL_DIR"
+    prune_staged_installs_for_verified_pin "$NEW_INSTALL_DIR"
     info "Skipping activation; staged install ready at: $NEW_INSTALL_DIR"
 fi
 

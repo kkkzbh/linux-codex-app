@@ -19,7 +19,10 @@ import path from "node:path";
 import realProcess from "node:process";
 import { fileURLToPath } from "node:url";
 import { encodeFrame, FrameDecoder, parseFrame } from "./linux-browser-runtime/frame.mjs";
-import { COMMON_BROWSER_CLIENT_PATCHES } from "./linux-browser-runtime/browser-client-patches.mjs";
+import {
+  CHROME_ONLY_BROWSER_CLIENT_PATCHES,
+  COMMON_BROWSER_CLIENT_PATCHES,
+} from "./linux-browser-runtime/browser-client-patches.mjs";
 import {
   BROWSER_SKILL_GUIDANCE_PATCHES,
   patchBrowserManifest,
@@ -443,6 +446,7 @@ function copyAndPatchChromeFixture(tempDir) {
   if (
     readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY") &&
     readFileSync(clientPath, "utf8").includes("browserAutomation") &&
+    readFileSync(clientPath, "utf8").includes("codexLinuxChromeBackendAllowlist") &&
     !/globalThis\.nodeRepl|[$A-Z_a-z][$\w]*\.nodeRepl|outside node repl|privilegedNodeRepl/.test(
       readFileSync(clientPath, "utf8"),
     ) &&
@@ -498,6 +502,20 @@ function testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols() {
     assert.equal(typeof patch.locatorStrategy, "string", `${patch.label} should declare a locator strategy`);
     assert.equal(typeof patch.risk, "string", `${patch.label} should declare a drift risk`);
   }
+
+  const chromeSyntheticSource =
+    'function available(){let value=readEnv(KEY);return value==null?null:split(value).filter(isKnown)}';
+  const chromePatched = patchSource(
+    chromeSyntheticSource,
+    CHROME_ONLY_BROWSER_CLIENT_PATCHES,
+    "synthetic chrome browser-client",
+  );
+  assert.equal(chromePatched.includes("codexLinuxChromeBackendAllowlist"), true);
+  assert.equal(chromePatched.includes('includes("chrome")'), true);
+  for (const patch of CHROME_ONLY_BROWSER_CLIENT_PATCHES) {
+    assert.equal(typeof patch.locatorStrategy, "string", `${patch.label} should declare a locator strategy`);
+    assert.equal(typeof patch.risk, "string", `${patch.label} should declare a drift risk`);
+  }
 }
 
 async function testPatchedBrowserClientStaticMarkers() {
@@ -512,6 +530,7 @@ async function testPatchedBrowserClientStaticMarkers() {
     assert.equal(clientSource.includes('/proc/${l.ppid}/environ'), true);
     assert.equal(clientSource.includes("browser backend registry type mismatch"), true);
     assert.equal(clientSource.includes("browser backend info request timed out"), true);
+    assert.equal(clientSource.includes("codexLinuxChromeBackendAllowlist"), true);
     assert.equal(clientSource.includes("browserAutomation"), true);
     assert.equal(/globalThis\.nodeRepl|[$A-Z_a-z][$\w]*\.nodeRepl/.test(clientSource), false);
     assert.equal(clientSource.includes("NodeRepl"), false);
@@ -673,7 +692,10 @@ async function testPatchedBrowserClientRegistryDiscovery() {
     process.env.CODEX_BROWSER_BACKENDS_REGISTRY = registryPath;
     globalThis.__codexNativePipe = { createConnection: (socketPath) => net.createConnection(socketPath) };
     globalThis.browserAutomation = {
-      env: { BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1" },
+      env: {
+        BROWSER_USE_AVAILABLE_BACKENDS: "iab",
+        BROWSER_USE_DISABLE_AMBIENT_NETWORK: "1",
+      },
       requestMeta: {
         "x-codex-turn-metadata": { session_id: "linux-browser-runtime-test", turn_id: "turn" },
       },
@@ -686,6 +708,12 @@ async function testPatchedBrowserClientRegistryDiscovery() {
     const setupRuntime = clientModule.setupBrowserRuntime ?? clientModule.setupAtlasRuntime;
     assert.equal(typeof setupRuntime, "function", "patched browser client should export a runtime setup function");
     await setupRuntime({ globals: globalThis });
+    const discoveredBrowsers = await globalThis.agent.browsers.list();
+    assert.equal(
+      discoveredBrowsers.some((browser) => browser.type === "extension"),
+      true,
+      "Chrome client should keep extension backend even when shared MCP env is iab-only",
+    );
     assert.ok(Date.now() - startedAt < 6_000, "hung backend should not block discovery indefinitely");
     assert.equal(extensionBackend.getInfoCalls(), 1);
     assert.equal(globalThis.__codexBrowserBackendRegistryByPath.get(extensionSocket).type, "extension");

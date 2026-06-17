@@ -417,6 +417,9 @@ function verifyBundledPlugins(resourcesDir) {
   if (!chromeClientSource.includes("browser backend info request timed out")) {
     fail(`Expected Chrome client to timeout unhealthy backend discovery sockets: ${chromeClient}`);
   }
+  if (!chromeClientSource.includes("codexLinuxChromeBackendAllowlist")) {
+    fail(`Expected Chrome client to keep the Chrome backend available when the shared browser_automation MCP env is iab-only: ${chromeClient}`);
+  }
   if (!chromeClientSource.includes('type:"mouseMoved",x:t.point.x,y:t.point.y,button:"none"')) {
     fail(`Expected Chrome client to dispatch an explicit CDP mouse move before clicking: ${chromeClient}`);
   }

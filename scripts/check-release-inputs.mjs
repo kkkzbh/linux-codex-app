@@ -90,6 +90,7 @@ for (const script of [
   "scripts/build-runtime-rpm.sh",
   "scripts/release-local.sh",
   "scripts/linux-codex-app",
+  "scripts/prune-staged-installs.sh",
   "scripts/verify-install.sh",
 ]) {
   requireExecutable(script);

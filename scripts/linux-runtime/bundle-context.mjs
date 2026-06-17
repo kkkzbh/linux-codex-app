@@ -116,7 +116,7 @@ export function createLinuxPatchContext(extractedAppDir) {
   const webviewComputerUseProviderSettingsPath = findAssetFileContaining(
     webviewAssetsDir,
     /^browser-use-settings-[^.]+\.js$/,
-    "r.find(e=>O(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)",
+    "function Wn(e,t,n){let r=e.filter(e=>e.plugin.name===t",
     "webview computer use provider settings",
   );
   const webviewPluginFeatureGatePath = findAssetFile(

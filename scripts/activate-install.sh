@@ -6,6 +6,8 @@ VERIFY_SCRIPT="$SCRIPT_DIR/verify-install.sh"
 DOLPHIN_WINDOW_ACCESS_SCRIPT="$SCRIPT_DIR/install-dolphin-window-access.sh"
 KITTY_WINDOW_ACCESS_SCRIPT="$SCRIPT_DIR/install-kitty-window-access.sh"
 COMPUTER_USE_ACCESS_SCRIPT="$SCRIPT_DIR/install-computer-use-access.sh"
+PRUNE_STAGED_INSTALLS_SCRIPT="$SCRIPT_DIR/prune-staged-installs.sh"
+VERIFIED_MARKER=".codex-linux-verified"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -142,6 +144,35 @@ if (changed) {
   console.error(`[INFO] Removed legacy node_repl MCP config from ${configPath}; backup: ${backupPath}`);
 }
 EOF
+}
+
+mark_verified_install() {
+    local marker_path="$INSTALL_DIR/$VERIFIED_MARKER"
+    {
+        printf 'verified_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        printf 'install_dir=%s\n' "$INSTALL_DIR"
+    } > "$marker_path"
+}
+
+prune_staged_installs() {
+    [ "${CODEX_STAGED_INSTALLS_PRUNE:-1}" != "0" ] || return 0
+
+    local staging_root=""
+    case "$INSTALL_DIR" in
+        */staged-installs/codex-app-*)
+            staging_root="${INSTALL_DIR%/codex-app-*}"
+            ;;
+        *)
+            info "Skipping staged install pruning for non-staged install: $INSTALL_DIR"
+            return 0
+            ;;
+    esac
+
+    [ -x "$PRUNE_STAGED_INSTALLS_SCRIPT" ] || error "Expected executable staged install prune helper: $PRUNE_STAGED_INSTALLS_SCRIPT"
+    "$PRUNE_STAGED_INSTALLS_SCRIPT" \
+        --staging-root "$staging_root" \
+        --active-link "$ACTIVE_LINK" \
+        --pin "$INSTALL_DIR"
 }
 
 if [ $# -ne 1 ]; then
@@ -347,6 +378,8 @@ fi
 
 install_chrome_native_host
 remove_legacy_node_repl_mcp_config
+mark_verified_install
+prune_staged_installs
 
 info "Activated install: $INSTALL_DIR"
 info "Launcher: $LAUNCHER_PATH"

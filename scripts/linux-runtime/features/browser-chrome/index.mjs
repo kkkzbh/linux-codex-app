@@ -2,6 +2,7 @@ import { browserAutomationRuntimeNameFeature } from "./browser-automation-runtim
 import { browserBackendRegistryFeature } from "./browser-backend-registry.mjs";
 import { browserSecurityFeature } from "./browser-security.mjs";
 import { browserUseFeature } from "./browser-use.mjs";
+import { chromeExtensionSettingsFeature } from "./chrome-extension-settings.mjs";
 import { chromeExtensionStatusFeature } from "./chrome-extension-status.mjs";
 import { chromeSetupUrlFeature } from "./chrome-setup-url.mjs";
 
@@ -10,6 +11,7 @@ export const browserChromeSubpatches = [
   browserAutomationRuntimeNameFeature,
   browserBackendRegistryFeature,
   browserSecurityFeature,
+  chromeExtensionSettingsFeature,
   chromeExtensionStatusFeature,
   chromeSetupUrlFeature,
 ];

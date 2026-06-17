@@ -2,14 +2,14 @@ import { FEATURE_MARKERS } from "../../markers.mjs";
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../../replace-utils.mjs";
 
 const upstreamChromeProfileRoot =
-  "function Uo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}";
+  "function Jo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}";
 
 const linuxChromeProfileRoot =
-  "function Uo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):n===`linux`?(0,a.join)(e,`.config`,`google-chrome`):null}";
+  "function Jo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):n===`linux`?(0,a.join)(e,`.config`,`google-chrome`):null}";
 
 export const chromeExtensionStatusFeature = {
   id: "chrome-extension-status",
-  version: 2,
+  version: 3,
   requiredMarkers: FEATURE_MARKERS["chrome-extension-status"].requiredMarkers,
   forbiddenMarkers: FEATURE_MARKERS["chrome-extension-status"].forbiddenMarkers,
   apply(bundleSources) {

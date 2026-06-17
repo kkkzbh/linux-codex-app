@@ -103,6 +103,15 @@ function replaceChromeProfileRoot(...args) {
   return `var ${profileRoot}=${resolve}(${homeDir}(),${platform}()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":${platform}()==="linux"?".config/google-chrome":"Library/Application Support/Google/Chrome");`;
 }
 
+const chromeBackendAllowlistRegex = new RegExp(
+  String.raw`function (?<fn>${IDENTIFIER})\(\)\{let (?<value>${IDENTIFIER})=(?<readEnv>${IDENTIFIER})\((?<availableBackends>${IDENTIFIER})\);return \k<value>==null\?null:(?<split>${IDENTIFIER})\(\k<value>\)\.filter\((?<isKnownBackend>${IDENTIFIER})\)\}`,
+);
+
+function replaceChromeBackendAllowlist(...args) {
+  const { fn, value, readEnv, availableBackends, split, isKnownBackend } = replacementGroups(args);
+  return `function ${fn}(){let ${value}=${readEnv}(${availableBackends});/* codexLinuxChromeBackendAllowlist */if(${value}!=null&&!${split}(${value}).includes("chrome"))${value}=${value}.length>0?\`${"${"}${value}},chrome\`:"chrome";return ${value}==null?null:${split}(${value}).filter(${isKnownBackend})}`;
+}
+
 export const COMMON_BROWSER_CLIENT_PATCHES = [
   {
     label: "native pipe bridge",
@@ -119,7 +128,6 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
     apply: replaceBrowserAutomationGlobal,
     appliedMarkers: [
       "globalThis.browserAutomation?.env",
-      "globalThis.browserAutomation?.fetch",
       "e.browserAutomation?.setResponseMeta",
       "e.browserAutomation?.emitImage",
     ],
@@ -173,7 +181,16 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
   },
 ];
 
-export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [];
+export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [
+  {
+    label: "Linux Chrome backend allowlist",
+    locatorStrategy: "regex-preserve-minified-names",
+    risk: "medium",
+    searchRegex: chromeBackendAllowlistRegex,
+    replacement: replaceChromeBackendAllowlist,
+    appliedMarkers: ["codexLinuxChromeBackendAllowlist"],
+  },
+];
 
 export function patchBrowserClient(browserClientPath, { includeChromePatches = false } = {}) {
   patchFile(

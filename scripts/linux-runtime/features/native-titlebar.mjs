@@ -36,16 +36,16 @@ const linuxTitlebarInjectionRegex =
   /const codexLinuxIpcRenderer[\s\S]*?process\.platform==="linux"&&linuxTitlebarConfigPromise\.then\([\s\S]*?\)\.catch\(\(\)=>\{\}\);/;
 
 const linuxTitlebarMainConstantsPatched =
-  "pl=`codex_desktop:trigger-sentry-test`,linuxTitlebarConfigChannel=`codex_desktop:linux-titlebar-config`,linuxTitlebarActionChannel=`codex_desktop:linux-titlebar-action`,linuxTitlebarDebugChannel=`codex_desktop:linux-titlebar-debug`,ml=`codex_desktop:connect-app-host`,hl=`icons`";
+  "Il=`codex_desktop:system-theme-variant-updated`,Ll=`codex_desktop:trigger-sentry-test`,linuxTitlebarConfigChannel=`codex_desktop:linux-titlebar-config`,linuxTitlebarActionChannel=`codex_desktop:linux-titlebar-action`,linuxTitlebarDebugChannel=`codex_desktop:linux-titlebar-debug`,Rl=`codex_desktop:connect-app-host`,zl=`icons`";
 
 const linuxTitlebarMainConstantsWithoutDebug =
-  "pl=`codex_desktop:trigger-sentry-test`,linuxTitlebarConfigChannel=`codex_desktop:linux-titlebar-config`,linuxTitlebarActionChannel=`codex_desktop:linux-titlebar-action`,ml=`codex_desktop:connect-app-host`,hl=`icons`";
+  "Il=`codex_desktop:system-theme-variant-updated`,Ll=`codex_desktop:trigger-sentry-test`,linuxTitlebarConfigChannel=`codex_desktop:linux-titlebar-config`,linuxTitlebarActionChannel=`codex_desktop:linux-titlebar-action`,Rl=`codex_desktop:connect-app-host`,zl=`icons`";
 
 const linuxTitlebarMainHandlersPatched =
-  "function RZ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(ol,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.j}),r.ipcMain.on(sl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(cl,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(ul,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}}),r.ipcMain.handle(linuxTitlebarConfigChannel,e=>{if(!i(e))return{enabled:!1};let t=r.BrowserWindow.fromWebContents(e.sender);return{enabled:!!t?.__codexCustomTitlebar}}),r.ipcMain.handle(linuxTitlebarActionChannel,(e,t)=>{if(!i(e))return{success:!1};let n=r.BrowserWindow.fromWebContents(e.sender);if(!n?.__codexCustomTitlebar)return{success:!1};switch(t){case`minimize`:n.minimize();break;case`maximize`:n.isMaximized()?n.unmaximize():n.maximize();break;case`close`:n.close();break;default:return{success:!1}}return{success:!0}}),r.ipcMain.handle(linuxTitlebarDebugChannel,(e,t)=>{if(!i(e)||process.env.CODEX_LINUX_TITLEBAR_DEBUG!==`1`)return{success:!1};try{let n=require(`node:fs`),a=require(`node:path`),o=process.env.CODEX_LINUX_TITLEBAR_DEBUG_LOG||a.join(r.app.getPath(`userData`),`linux-titlebar-debug.jsonl`);return n.appendFileSync(o,JSON.stringify({time:new Date().toISOString(),payload:t})+`\\n`),{success:!0,path:o}}catch(e){return{success:!1,error:e instanceof Error?e.message:String(e)}}})}";
+  "function YQ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(Al,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.N}),r.ipcMain.on(jl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(Ml,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(Pl,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}}),r.ipcMain.handle(linuxTitlebarConfigChannel,e=>{if(!i(e))return{enabled:!1};let t=r.BrowserWindow.fromWebContents(e.sender);return{enabled:!!t?.__codexCustomTitlebar}}),r.ipcMain.handle(linuxTitlebarActionChannel,(e,t)=>{if(!i(e))return{success:!1};let n=r.BrowserWindow.fromWebContents(e.sender);if(!n?.__codexCustomTitlebar)return{success:!1};switch(t){case`minimize`:n.minimize();break;case`maximize`:n.isMaximized()?n.unmaximize():n.maximize();break;case`close`:n.close();break;default:return{success:!1}}return{success:!0}}),r.ipcMain.handle(linuxTitlebarDebugChannel,(e,t)=>{if(!i(e)||process.env.CODEX_LINUX_TITLEBAR_DEBUG!==`1`)return{success:!1};try{let n=require(`node:fs`),a=require(`node:path`),o=process.env.CODEX_LINUX_TITLEBAR_DEBUG_LOG||a.join(r.app.getPath(`userData`),`linux-titlebar-debug.jsonl`);return n.appendFileSync(o,JSON.stringify({time:new Date().toISOString(),payload:t})+`\\n`),{success:!0,path:o}}catch(e){return{success:!1,error:e instanceof Error?e.message:String(e)}}})}";
 
 const linuxTitlebarMainHandlersWithoutDebug =
-  "function RZ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(ol,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.j}),r.ipcMain.on(sl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(cl,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(ul,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}}),r.ipcMain.handle(linuxTitlebarConfigChannel,e=>{if(!i(e))return{enabled:!1};let t=r.BrowserWindow.fromWebContents(e.sender);return{enabled:!!t?.__codexCustomTitlebar}}),r.ipcMain.handle(linuxTitlebarActionChannel,(e,t)=>{if(!i(e))return{success:!1};let n=r.BrowserWindow.fromWebContents(e.sender);if(!n?.__codexCustomTitlebar)return{success:!1};switch(t){case`minimize`:n.minimize();break;case`maximize`:n.isMaximized()?n.unmaximize():n.maximize();break;case`close`:n.close();break;default:return{success:!1}}return{success:!0}})}";
+  "function YQ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(Al,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.N}),r.ipcMain.on(jl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(Ml,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(Pl,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}}),r.ipcMain.handle(linuxTitlebarConfigChannel,e=>{if(!i(e))return{enabled:!1};let t=r.BrowserWindow.fromWebContents(e.sender);return{enabled:!!t?.__codexCustomTitlebar}}),r.ipcMain.handle(linuxTitlebarActionChannel,(e,t)=>{if(!i(e))return{success:!1};let n=r.BrowserWindow.fromWebContents(e.sender);if(!n?.__codexCustomTitlebar)return{success:!1};switch(t){case`minimize`:n.minimize();break;case`maximize`:n.isMaximized()?n.unmaximize():n.maximize();break;case`close`:n.close();break;default:return{success:!1}}return{success:!0}})}";
 
 const linuxTitlebarPreloadConstantsPatched =
   "u=`codex_desktop:trigger-sentry-test`,linuxTitlebarConfigChannel=`codex_desktop:linux-titlebar-config`,linuxTitlebarActionChannel=`codex_desktop:linux-titlebar-action`,linuxTitlebarDebugChannel=`codex_desktop:linux-titlebar-debug`,d=`codex_desktop:connect-app-host`;function f(e){";
@@ -54,14 +54,17 @@ const linuxTitlebarMenuScrub =
   "process.platform===`linux`&&r.BrowserWindow.getAllWindows().forEach(e=>{e.__codexCustomTitlebar&&!e.isDestroyed()&&(e.setMenu(null),e.setMenuBarVisibility(!1))})";
 
 const linuxTitlebarApplicationMenuPatch =
-  "process.platform===`linux`?r.Menu.setApplicationMenu(null):r.Menu.setApplicationMenu(st)";
+  "process.platform===`linux`?r.Menu.setApplicationMenu(null):r.Menu.setApplicationMenu(ut)";
+
+const linuxTitlebarOverlayInstallPatch =
+  "let P=process.platform===`linux`?void 0:this.installApplicationMenuTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)}";
 
 const linuxTitlebarApplicationMenuBridgePatch =
   "showApplicationMenu:process.platform===`linux`?void 0:async(t,n,i)=>{await e.ipcRenderer.invoke(r,{menuId:t,x:n,y:i})}";
 
 export const nativeTitlebarFeature = {
   id: "native-titlebar",
-  version: 34,
+  version: 35,
   apply(bundleSources) {
     if (this.isApplied(bundleSources)) {
       return bundleSources;
@@ -74,17 +77,26 @@ export const nativeTitlebarFeature = {
       if (!mainSource.includes("autoHideMenuBar:!0")) {
         mainSource = replaceOrThrow(
           mainSource,
-          "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:o3(r)}:{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`};",
-          "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:o3(r)}:{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`,autoHideMenuBar:!0};",
+          "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:w6(r)}:n===`linux`?{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`}:{titleBarStyle:`default`};",
+          "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:w6(r)}:n===`linux`?{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`,autoHideMenuBar:!0}:{titleBarStyle:`default`};",
           "main bundle Linux primary window chrome menu bar refresh",
+        );
+      }
+
+      if (!mainSource.includes(linuxTitlebarOverlayInstallPatch)) {
+        mainSource = replaceOrThrow(
+          mainSource,
+          "let P=this.installApplicationMenuTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)}",
+          linuxTitlebarOverlayInstallPatch,
+          "main bundle Linux titlebar overlay install guard refresh",
         );
       }
 
       if (!mainSource.includes("setMenu(null)")) {
         mainSource = replaceOrThrow(
           mainSource,
-          "let P=this.installWindowsTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)};M.__codexCustomTitlebar=process.platform===`linux`&&l===`primary`;M.__codexCustomTitlebar&&M.setMenuBarVisibility(!1);process.platform===`darwin`&&(M.on(`move`,te),M.on(`resize`,te)),process.platform===`win32`&&M.removeMenu(),",
-          "let P=this.installWindowsTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)};M.__codexCustomTitlebar=process.platform===`linux`&&l===`primary`;M.__codexCustomTitlebar&&(M.setMenu(null),M.setMenuBarVisibility(!1));process.platform===`darwin`&&(M.on(`move`,te),M.on(`resize`,te)),process.platform===`win32`&&M.removeMenu(),",
+          `${linuxTitlebarOverlayInstallPatch};M.__codexCustomTitlebar=process.platform===\`linux\`&&l===\`primary\`;M.__codexCustomTitlebar&&M.setMenuBarVisibility(!1);process.platform===\`darwin\`&&(M.on(\`move\`,te),M.on(\`resize\`,te)),process.platform===\`win32\`&&M.removeMenu(),`,
+          `${linuxTitlebarOverlayInstallPatch};M.__codexCustomTitlebar=process.platform===\`linux\`&&l===\`primary\`;M.__codexCustomTitlebar&&(M.setMenu(null),M.setMenuBarVisibility(!1));process.platform===\`darwin\`&&(M.on(\`move\`,te),M.on(\`resize\`,te)),process.platform===\`win32\`&&M.removeMenu(),`,
           "main bundle primary window menu removal refresh",
         );
       }
@@ -92,8 +104,8 @@ export const nativeTitlebarFeature = {
       if (!mainSource.includes(linuxTitlebarMenuScrub)) {
         mainSource = replaceOrThrow(
           mainSource,
-          "r.Menu.setApplicationMenu(st),Tq(_)",
-          `r.Menu.setApplicationMenu(st),${linuxTitlebarMenuScrub},Tq(_)`,
+          "r.Menu.setApplicationMenu(ut),NJ(_)",
+          `r.Menu.setApplicationMenu(ut),${linuxTitlebarMenuScrub},NJ(_)`,
           "main bundle Linux custom titlebar menu scrub refresh",
         );
       }
@@ -101,8 +113,8 @@ export const nativeTitlebarFeature = {
       if (!mainSource.includes(linuxTitlebarApplicationMenuPatch)) {
         mainSource = replaceOrThrow(
           mainSource,
-          `r.Menu.setApplicationMenu(st),${linuxTitlebarMenuScrub},Tq(_)`,
-          `${linuxTitlebarApplicationMenuPatch},${linuxTitlebarMenuScrub},Tq(_)`,
+          `r.Menu.setApplicationMenu(ut),${linuxTitlebarMenuScrub},NJ(_)`,
+          `${linuxTitlebarApplicationMenuPatch},${linuxTitlebarMenuScrub},NJ(_)`,
           "main bundle Linux application menu removal refresh",
         );
       }
@@ -157,35 +169,35 @@ export const nativeTitlebarFeature = {
 
     mainSource = replaceOrThrow(
       mainSource,
-      "pl=`codex_desktop:trigger-sentry-test`,ml=`codex_desktop:connect-app-host`,hl=`icons`",
+      "Il=`codex_desktop:system-theme-variant-updated`,Ll=`codex_desktop:trigger-sentry-test`,Rl=`codex_desktop:connect-app-host`,zl=`icons`",
       linuxTitlebarMainConstantsPatched,
       "main bundle Linux titlebar IPC constants",
     );
 
     mainSource = replaceOrThrow(
       mainSource,
-      "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:o3(r)}:{titleBarStyle:`default`};",
-      "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:a3(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:o3(r)}:{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`,autoHideMenuBar:!0};",
+      "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:w6(r)}:{titleBarStyle:`default`};",
+      "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:C6(r)}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:w6(r)}:n===`linux`?{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`,autoHideMenuBar:!0}:{titleBarStyle:`default`};",
       "main bundle Linux primary window chrome",
     );
 
     mainSource = replaceOrThrow(
       mainSource,
-      "let P=this.installWindowsTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)};process.platform===`darwin`&&(M.on(`move`,te),M.on(`resize`,te)),process.platform===`win32`&&M.removeMenu(),",
-      "let P=this.installWindowsTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)};M.__codexCustomTitlebar=process.platform===`linux`&&l===`primary`;M.__codexCustomTitlebar&&(M.setMenu(null),M.setMenuBarVisibility(!1));process.platform===`darwin`&&(M.on(`move`,te),M.on(`resize`,te)),process.platform===`win32`&&M.removeMenu(),",
+      "let P=this.installApplicationMenuTitleBarOverlaySync(M,l),te=()=>{this.applyWindowBackdrop(M,l,!1)};process.platform===`darwin`&&(M.on(`move`,te),M.on(`resize`,te)),(process.platform===`win32`||process.platform===`linux`)&&M.removeMenu(),",
+      `${linuxTitlebarOverlayInstallPatch};M.__codexCustomTitlebar=process.platform===\`linux\`&&l===\`primary\`;M.__codexCustomTitlebar&&(M.setMenu(null),M.setMenuBarVisibility(!1));process.platform===\`darwin\`&&(M.on(\`move\`,te),M.on(\`resize\`,te)),process.platform===\`win32\`&&M.removeMenu(),`,
       "main bundle primary window marker",
     );
 
     mainSource = replaceOrThrow(
       mainSource,
-      "r.Menu.setApplicationMenu(st),Tq(_)",
-      `${linuxTitlebarApplicationMenuPatch},${linuxTitlebarMenuScrub},Tq(_)`,
+      "r.Menu.setApplicationMenu(ut),NJ(_)",
+      `${linuxTitlebarApplicationMenuPatch},${linuxTitlebarMenuScrub},NJ(_)`,
       "main bundle Linux custom titlebar menu scrub",
     );
 
     mainSource = replaceOrThrow(
       mainSource,
-      "function RZ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(ol,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.j}),r.ipcMain.on(sl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(cl,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(ul,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}})}",
+      "function YQ({buildFlavor:e,getContextForWebContents:t,isTrustedIpcEvent:i,usesOwlAppShell:a}){r.ipcMain.on(Al,e=>{if(!i(e)){e.returnValue=null;return}e.returnValue=n.N}),r.ipcMain.on(jl,t=>{if(!i(t)){t.returnValue=null;return}t.returnValue=e}),r.ipcMain.on(Ml,e=>{if(!i(e)){e.returnValue=!1;return}e.returnValue=a}),r.ipcMain.on(Pl,e=>{if(!i(e)){e.returnValue={};return}e.returnValue=t(e.sender)?.getSharedObjectSnapshot()??{}})}",
       linuxTitlebarMainHandlersPatched,
       "main bundle Linux titlebar IPC handlers",
     );

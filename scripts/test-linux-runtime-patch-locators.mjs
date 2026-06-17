@@ -17,6 +17,7 @@ const browserChromeSubpatchById = new Map(
 );
 const browserUseFeature = browserChromeSubpatchById.get("browser-use");
 const browserAutomationRuntimeNameFeature = browserChromeSubpatchById.get("browser-automation-runtime-name");
+const chromeExtensionSettingsFeature = browserChromeSubpatchById.get("chrome-extension-settings");
 const chromeExtensionStatusFeature = browserChromeSubpatchById.get("chrome-extension-status");
 const chromeSetupUrlFeature = browserChromeSubpatchById.get("chrome-setup-url");
 
@@ -34,6 +35,7 @@ assert.equal(featureIds.has("browser-use"), false);
 assert.equal(featureIds.has("browser-automation-runtime-name"), false);
 assert.equal(featureIds.has("browser-backend-registry"), false);
 assert.equal(featureIds.has("browser-security"), false);
+assert.equal(featureIds.has("chrome-extension-settings"), false);
 assert.equal(featureIds.has("chrome-extension-status"), false);
 assert.equal(featureIds.has("chrome-setup-url"), false);
 assert.equal(featureIds.has("plugin-mcp-reload"), false);
@@ -44,6 +46,7 @@ assert.deepEqual(
     "browser-automation-runtime-name",
     "browser-backend-registry",
     "browser-security",
+    "chrome-extension-settings",
     "chrome-extension-status",
     "chrome-setup-url",
   ],
@@ -171,13 +174,13 @@ assert.equal(
 );
 assert.equal(
   FEATURE_MARKERS["native-titlebar"].mainRequiredMarkers.includes(
-    "process.platform===`linux`?r.Menu.setApplicationMenu(null):r.Menu.setApplicationMenu(st)",
+    "process.platform===`linux`?r.Menu.setApplicationMenu(null):r.Menu.setApplicationMenu(ut)",
   ),
   true,
 );
 assert.equal(
   FEATURE_MARKERS["native-titlebar"].mainForbiddenMarkers.includes(
-    "frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`};",
+    "n===`linux`?{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`}:{titleBarStyle:`default`};",
   ),
   true,
 );
@@ -188,7 +191,7 @@ assert.equal(
   true,
 );
 assert.equal(
-  FEATURE_MARKERS["native-titlebar"].mainForbiddenMarkers.includes("r.Menu.setApplicationMenu(st),Tq(_)"),
+  FEATURE_MARKERS["native-titlebar"].mainForbiddenMarkers.includes("r.Menu.setApplicationMenu(ut),NJ(_)"),
   true,
 );
 assert.equal(
@@ -283,7 +286,8 @@ let bundleSources = {
   main: [
     "function Ve(e,{buildFlavor:t=n.P.resolve(),env:r=p.default.env,platform:i=p.default.platform}={}){let a=i===`darwin`&&!n.P.isInternal(t)&&e.computerUseNodeRepl!=null?{...e,computerUseNodeRepl:!1}:e,o=i===`win32`&&e.computerUse===!0?{...a,computerUseNodeRepl:!0}:a,s=i===`win32`&&r.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...o,computerUse:!0,computerUseNodeRepl:!0}:o,c=t===n.P.Dev?He(r):null;return c==null?{...s,deviceAttestation:ve({platform:i})}:{...s,...c,deviceAttestation:ve({platform:i})}}",
     '"chrome-extension-installed-read":async({extensionId:e})=>({installed:oa({extensionId:e})});',
-    "function Uo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
+    "async function Wo({extensionId:e,platform:t=process.platform,detectChromeCommand:n=Go,runCommand:r=So}){if(t===`darwin`){await r(Bo,[`-b`,zo,Ho(e)]);return}if(t===`win32`){let t=n();if(t==null)throw Error(`Google Chrome is not installed`);await r(t,[Ho(e)]);return}throw Error(`Opening Chrome extension settings is only supported on macOS and Windows`)}function Go(){return vo(`chrome.exe`)??vo(`chrome`)??Ao([[`Google`,`Chrome`,`Application`,`chrome.exe`]])??Ko()}",
+    "function Jo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
   ].join(""),
 };
 
@@ -346,6 +350,22 @@ chromeExtensionStatusFeature.verify(bundleSources);
 assert.equal(bundleSources.main.includes("`.config`,`google-chrome`"), true);
 assert.equal(bundleSources.main.includes("n===`linux`?(0,a.join)(e,`.config`,`google-chrome`):null"), true);
 
+let chromeExtensionSettingsBundle = {
+  main: bundleSources.main,
+  webviewComputerUseSettings:
+    "let F;e[18]!==x||e[19]!==S||e[20]!==C||e[21]!==n||e[22]!==t?(F=n===`macOS`||n===`windows`?(0,Z.jsx)(y,{color:`danger`,disabled:x==null||C||!S,onClick:()=>{x!=null&&f(`chrome-extension-settings-open`,{params:{extensionId:x}}).catch(()=>{t.get(k).danger((0,Z.jsx)(g,{id:`settings.computerUse.chrome.openExtensionSettingsError`,defaultMessage:`Unable to open Chrome extension settings`,description:`Toast shown when the app fails to open Chrome extension settings`}))})},size:`toolbar`,children:(0,Z.jsx)(g,{id:`settings.computerUse.chrome.removeExtension`,defaultMessage:`Remove extension`,description:`Button label to remove the Google Chrome extension`})}):null,e[18]=x,e[19]=S,e[20]=C,e[21]=n,e[22]=t,e[23]=F):F=e[23];",
+};
+assert.equal(chromeExtensionSettingsFeature.isApplied(chromeExtensionSettingsBundle), false);
+chromeExtensionSettingsBundle = chromeExtensionSettingsFeature.apply(chromeExtensionSettingsBundle);
+chromeExtensionSettingsFeature.verify(chromeExtensionSettingsBundle);
+assert.equal(chromeExtensionSettingsBundle.main.includes("codexLinuxDetectChromeCommand"), true);
+assert.equal(
+  chromeExtensionSettingsBundle.webviewComputerUseSettings.includes(
+    "n===`macOS`||n===`windows`||n===`linux`",
+  ),
+  true,
+);
+
 let chromeSetupBundle = {
   webviewPluginAvailability: [
     "chromeIcon=`assets/google-chrome.png`,extensionAsset=`scripts/extension-id.json`,buildUrl=`https://chromewebstore.google.com/detail/codex/`,allowedBrowsers=makeSet([`chrome`,`chrome-dev`,`chrome-internal`]),",
@@ -368,9 +388,9 @@ assert.equal(chromeSetupBundle.webviewPluginDetail.includes("plugin_browser_exte
 
 let computerUseSettingsBundle = {
   webviewComputerUseSettings:
-    "function Me(e){let t=(0,X.c)(48),{computerUseAvailability:n}=e,r=j(),{selectedHostId:i}=G(),a=m(i).kind===`local`,o;t[0]===i?o=t[1]:(o={hostId:i},t[0]=i,t[1]=o);let s=I(o),c;t[2]===Symbol.for(`react.memo_cache_sentinel`)?(c=[],t[2]=c):c=t[2];let l=ee(i,c),u=ve(i),d;t[3]!==u||t[4]!==l.availablePlugins?(d=T(l.availablePlugins,Te,u),t[3]=u,t[4]=l.availablePlugins,t[5]=d):d=t[5];let f=d,p;",
+    "function Me(e){let t=(0,X.c)(48),{computerUseAvailability:n}=e,r=j(),{selectedHostId:i}=G(),a=m(i).kind===`local`,o;t[0]===i?o=t[1]:(o={hostId:i},t[0]=i,t[1]=o);let s=I(o),c;t[2]===Symbol.for(`react.memo_cache_sentinel`)?(c=[],t[2]=c):c=t[2];let u=Se(i,c),d=dt(i),f;t[3]!==d||t[4]!==u.availablePlugins?(f=C(u.availablePlugins,Te,d),t[3]=d,t[4]=u.availablePlugins,t[5]=f):f=t[5];let p=f,m;",
   webviewComputerUseProviderSettings:
-    "function an(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=E(ye());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>O(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>ze(n,e.marketplacePath))??null}",
+    "function Wn(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=O(Ce());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>g(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ke(n,e.marketplacePath))??null}",
 };
 assert.equal(computerUseProviderFeature.isApplied(computerUseSettingsBundle), false);
 computerUseSettingsBundle = computerUseProviderFeature.apply(computerUseSettingsBundle);
@@ -387,7 +407,7 @@ assert.equal(
 );
 assert.equal(
   computerUseSettingsBundle.webviewComputerUseSettings.includes(
-    "d=T([...l.availablePlugins,...l.installedPlugins],Te,u)",
+    "f=C([...u.availablePlugins,...u.installedPlugins],Te,d)",
   ),
   true,
 );
@@ -399,14 +419,14 @@ assert.equal(
 );
 assert.equal(
   computerUseSettingsBundle.webviewComputerUseSettings.includes(
-    "let f=d??codexLinuxComputerUseProvider(),p;",
+    "let p=f??codexLinuxComputerUseProvider(),m;",
   ),
   true,
 );
 
 let computerUseAvailabilityBundle = {
   webviewPluginFeatureGate:
-    "function d(e){return e===`macOS`||e===`windows`}function f(e){let t=(0,l.c)(14),{enabled:n,hostId:r}=e,i=n===void 0?!0:n,{isLoading:o,platform:c}=s(),f=a(`1506311413`),m;t[0]===r?m=t[1]:(m={featureName:`computer_use`,hostId:r},t[0]=r,t[1]=m);let h=u(m),g;t[2]!==h.enabled||t[3]!==h.isLoading||t[4]!==i||t[5]!==f||t[6]!==o||t[7]!==c?(g=p({enabled:i,isComputerUseFeatureEnabled:h.enabled,isComputerUseFeatureLoading:h.isLoading,isComputerUseGateEnabled:f,isHostCompatiblePlatform:d(c),isPlatformLoading:o,windowType:`electron`}),t[2]=h.enabled,t[3]=h.isLoading,t[4]=i,t[5]=f,t[6]=o,t[7]=c,t[8]=g):g=t[8]}",
+    "function _(e){return e===`macOS`||e===`windows`}function v(e){let t=(0,h.c)(16),{enabled:n,hostId:r}=e,i=n===void 0?!0:n,{isLoading:a,platform:o}=p(),s=c(`1506311413`),l;t[0]===r?l=t[1]:(l={featureName:`computer_use`,hostId:r},t[0]=r,t[1]=l);let u=g(l),d=o===`windows`&&!a,f=i&&d,m;t[2]===f?m=t[3]:(m={enabled:f},t[2]=f,t[3]=m);let v=y(m),x=u.isLoading||d&&v.isLoading,S=u.enabled&&(!d||v.enabled),C;t[4]!==S||t[5]!==i||t[6]!==x||t[7]!==s||t[8]!==a||t[9]!==o?(C=b({areRequiredFeaturesEnabled:S,enabled:i,isAnyFeatureLoading:x,isComputerUseGateEnabled:s,isHostCompatiblePlatform:_(o),isPlatformLoading:a,windowType:`electron`}),t[4]=S,t[5]=i,t[6]=x,t[7]=s,t[8]=a,t[9]=o,t[10]=C):C=t[10]}",
 };
 assert.equal(computerUseAvailabilityFeature.isApplied(computerUseAvailabilityBundle), false);
 computerUseAvailabilityBundle = computerUseAvailabilityFeature.apply(computerUseAvailabilityBundle);
@@ -419,7 +439,7 @@ assert.equal(
 );
 assert.equal(
   computerUseAvailabilityBundle.webviewPluginFeatureGate.includes(
-    "isComputerUseGateEnabled:f||c===`linux`",
+    "isComputerUseGateEnabled:s||o===`linux`",
   ),
   true,
 );
@@ -435,8 +455,8 @@ assert.equal(settingsSidebarBundle.webviewSettingsPage.includes("app-shell-left-
 assert.equal(settingsSidebarBundle.webviewSettingsPage.includes("pointer-events-auto relative flex min-h-0 shrink-0"), true);
 
 const patchedOpenTargetsAnchor = openTargetsFeature.getPatchedGhosttyAnchor();
-assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>po(`gwenview`)"), true);
-assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>po(`typora`)??po(`typora-x11-fcitx`)"), true);
+assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>vo(`gwenview`)"), true);
+assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>vo(`typora`)??vo(`typora-x11-fcitx`)"), true);
 assert.equal(patchedOpenTargetsAnchor.includes("detect:()=>Fi(`"), false);
 
 console.error("[INFO] Linux runtime patch locator tests passed");
