@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "id": "codex-app-20260617",
+  "appVersion": "26.609.41114",
+  "appBuildNumber": "3888",
+  "rpmVersion": "0.1.3",
+  "rpmRelease": "1.codex26_609_41114",
+  "targetArch": "x86_64",
+  "dmg": {
+    "url": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",
+    "size": 486834998,
+    "etag": "0x8DEC8D33307EEFB",
+    "lastModified": "Fri, 12 Jun 2026 22:37:35 GMT",
+    "appAsarPath": "Codex Installer/Codex.app/Contents/Resources/app.asar",
+    "sha256": "fcc4da9a09973fd35c0399018434aa80e4e3a04112d0ea98cb0eeeb70fb9d9e8",
+    "appAsarSha256": "586dcb004fc1dc50030bcdd10677e06fbb771c2b016f62880df16e58ff134050"
+  },
+  "electron": {
+    "version": "42.1.0"
+  },
+  "buildTools": {
+    "sevenZip": {
+      "version": "25.01",
+      "url": "https://www.7-zip.org/a/7z2501-linux-x64.tar.xz",
+      "sha256": "4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4"
+    }
+  },
+  "codexCli": {
+    "release": "rust-v0.139.0",
+    "version": "0.139.0",
+    "vendorTarget": "x86_64-unknown-linux-musl",
+    "archiveUrl": "https://github.com/openai/codex/releases/download/rust-v0.139.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+    "sha256": "8641a47657ab347db65f1a7533905d3707aeff2882549a35187aea1362f9228c"
+  },
+  "linuxPatchVersion": 93
+}

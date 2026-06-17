@@ -3,8 +3,21 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST_PATH="${1:-$REPO_ROOT/upstream/codex-app-20260609.json}"
 DIST_DIR="${LINUX_CODEX_APP_DIST_DIR:-$REPO_ROOT/dist}"
+
+resolve_manifest_path() {
+    local manifest="${1:-latest}"
+    if [ "$manifest" = "latest" ]; then
+        manifest="$(find "$REPO_ROOT/upstream" -maxdepth 1 -type f -name 'codex-app-*.json' | sort | tail -n 1)"
+        [ -n "$manifest" ] || {
+            printf '[ERROR] No codex-app manifests found under: %s\n' "$REPO_ROOT/upstream" >&2
+            exit 1
+        }
+    fi
+    printf '%s\n' "$manifest"
+}
+
+MANIFEST_PATH="$(resolve_manifest_path "${1:-latest}")"
 
 info() { printf '[INFO] %s\n' "$*" >&2; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
