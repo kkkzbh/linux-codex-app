@@ -452,16 +452,18 @@ function testPluginMetadata() {
   assert.deepEqual(mcpManifest.dolphin.args, ["./scripts/dolphin-mcp.mjs"]);
   assert.equal(mcpManifest.dolphin.cwd, ".");
 
-  const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
-  const validationOutput = validation.stdout + validation.stderr;
-  if (
-    validation.status !== 0 &&
-    validationOutput.includes("field `dolphin` is not accepted by plugin validation") &&
-    validationOutput.includes("field `mcpServers` must be an object")
-  ) {
-    return;
+  if (existsSync(pluginValidator)) {
+    const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
+    const validationOutput = validation.stdout + validation.stderr;
+    if (
+      validation.status !== 0 &&
+      validationOutput.includes("field `dolphin` is not accepted by plugin validation") &&
+      validationOutput.includes("field `mcpServers` must be an object")
+    ) {
+      return;
+    }
+    assert.equal(validation.status, 0, validationOutput);
   }
-  assert.equal(validation.status, 0, validationOutput);
 }
 
 function testDolphinWindowAccessInstaller() {

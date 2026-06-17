@@ -1630,16 +1630,18 @@ function testPluginMetadata() {
   assert.deepEqual(mcpManifest.kitty.args, ["./scripts/kitty-mcp.mjs"]);
   assert.equal(mcpManifest.kitty.cwd, ".");
 
-  const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
-  const validationOutput = validation.stdout + validation.stderr;
-  if (
-    validation.status !== 0 &&
-    validationOutput.includes("field `kitty` is not accepted by plugin validation") &&
-    validationOutput.includes("field `mcpServers` must be an object")
-  ) {
-    return;
+  if (existsSync(pluginValidator)) {
+    const validation = spawnSync("python3", [pluginValidator, pluginRoot], { encoding: "utf8" });
+    const validationOutput = validation.stdout + validation.stderr;
+    if (
+      validation.status !== 0 &&
+      validationOutput.includes("field `kitty` is not accepted by plugin validation") &&
+      validationOutput.includes("field `mcpServers` must be an object")
+    ) {
+      return;
+    }
+    assert.equal(validation.status, 0, validationOutput);
   }
-  assert.equal(validation.status, 0, validationOutput);
 }
 
 async function testKittyIdentityDoesNotUseLegacyCodexKittyName() {

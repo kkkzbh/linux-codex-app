@@ -31,13 +31,13 @@ jobs:
       - name: Install check dependencies
         if: github.event_name != 'workflow_dispatch'
         run: |
-          dnf install -y bash nodejs npm python3
+          dnf install -y bash nodejs npm procps-ng python3
       - name: Install build dependencies
         if: github.event_name == 'workflow_dispatch'
         run: |
           dnf install -y \
             bash curl findutils gcc-c++ git make nodejs npm python3 \
-            dpkg rpm-build rsync tar unzip zstd desktop-file-utils
+            dpkg procps-ng rpm-build rsync tar unzip zstd desktop-file-utils
       - name: Mark scripts executable
         run: chmod +x install.sh scripts/*.sh scripts/linux-codex-app scripts/verify-install.sh
       - name: Run checks
