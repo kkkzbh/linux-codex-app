@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-17T13:34:50.195Z",
+  "updatedAt": "2026-06-17T13:48:24.942Z",
   "fedoraRelease": "44",
   "arch": "x86_64",
   "packages": [
@@ -38,7 +38,7 @@
       "fileName": "linux-codex-app-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
       "releaseTag": "v0.1.3-codex26.609.41114",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.3-codex26.609.41114/linux-codex-app-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
-      "sha256": "1e8770d2073e97ee9ec1520d29f5e58e6f4d21ad7ed4210b0b0d0734ba52051f"
+      "sha256": "ab95d846c5f47d5bd782e9ff32aa8ac115cd95220745b1c24e828ea03556be3f"
     },
     {
       "fileName": "linux-codex-app-plugin-computer-use-0.1.1-1.codex26_527_60818.fc44.x86_64.rpm",
@@ -62,7 +62,7 @@
       "fileName": "linux-codex-app-plugin-computer-use-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
       "releaseTag": "v0.1.3-codex26.609.41114",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.3-codex26.609.41114/linux-codex-app-plugin-computer-use-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
-      "sha256": "1b49e11e6ea0f00fd2f7237ae4588ce8931ec758a5f0f56edfacd8212eb4ec6f"
+      "sha256": "869525b3abd304bfe45bee0a3ecea7041398190133b4e9590fb3531fb2fffee1"
     },
     {
       "fileName": "linux-codex-app-plugin-dolphin-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -98,7 +98,7 @@
       "fileName": "linux-codex-app-plugin-dolphin-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
       "releaseTag": "v0.1.3-codex26.609.41114",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.3-codex26.609.41114/linux-codex-app-plugin-dolphin-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
-      "sha256": "1123bafaa7de9d890b6bf0b4b412671010257eb5a062bb67df0447ee9221578f"
+      "sha256": "1754e2e2d7cb9af28892ea4feb3f7982a62c9fd0282ff9473d1e445f609e4bde"
     },
     {
       "fileName": "linux-codex-app-plugin-kitty-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -134,7 +134,7 @@
       "fileName": "linux-codex-app-plugin-kitty-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
       "releaseTag": "v0.1.3-codex26.609.41114",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.3-codex26.609.41114/linux-codex-app-plugin-kitty-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
-      "sha256": "2d7df049a9d55313a005f67232713bb60ddd8f34589caf10ad65922851e6f057"
+      "sha256": "0d9763448658c6cbb5b884b0b12caff795c692ba55cf56cf81b3da4170e16f74"
     },
     {
       "fileName": "linux-codex-app-repo-0.1.0-1.codex26_519_81530.fc44.x86_64.rpm",
@@ -170,7 +170,7 @@
       "fileName": "linux-codex-app-repo-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
       "releaseTag": "v0.1.3-codex26.609.41114",
       "downloadUrl": "https://github.com/kkkzbh/linux-codex-app/releases/download/v0.1.3-codex26.609.41114/linux-codex-app-repo-0.1.3-1.codex26_609_41114.fc44.x86_64.rpm",
-      "sha256": "3c3734291b2640669b0d0073856110624aa53f4a1f0438d59a1eb2a7b5e29cc2"
+      "sha256": "552726fe5551c9041f184c31a8ba208377c1d288c71c7a64924ed60a39e0b984"
     }
   ]
 }
