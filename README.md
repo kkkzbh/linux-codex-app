@@ -1,90 +1,90 @@
 # linux-codex-app
 
-把 Codex App 打包成 Linux 上可直接安装或运行的发行产物。
+English | [简体中文](README.zh-CN.md)
 
-这个项目会在发布阶段下载固定版本的上游 `Codex.dmg`，校验 hash，转换成 Linux Electron runtime，应用 Linux patch，并把最终 runtime 和固定版本 Codex CLI 一起打包。用户安装或运行发布产物时不需要提供 DMG，也不会在安装阶段 patch、编译或联网下载上游 App。
+Package Codex App into Linux release artifacts that can be installed or run directly.
 
-当前目标平台：
+During release, this project downloads a fixed upstream `Codex.dmg`, verifies its hash, converts it to a Linux Electron runtime, applies Linux patches, and packages the final runtime together with a fixed Codex CLI version. Users do not need to provide the DMG, patch, compile, or download the upstream app during installation or runtime startup.
 
-- Fedora 44 KDE x86_64 是 RPM/DNF 仓库的主要验证目标
+Current targets:
+
+- Fedora 44 KDE x86_64 is the primary validated target for RPM/DNF repository installation
 - Codex App `26.608.12217`
 - Electron `42.1.0`
 - Codex CLI `0.139.0`
 
-发布产物：
+Release artifacts:
 
-- RPM：Fedora/DNF 仓库和直接安装
-- DEB：Debian/Ubuntu 系发行版直接安装
-- AppImage：免安装运行
-- tar.gz：portable root payload，适合手工安装、检查或二次打包
-- pkg.tar.zst：Arch/pacman 直接安装包
+- RPM: Fedora/DNF repository and direct install
+- DEB: direct install on Debian/Ubuntu-family distributions
+- AppImage: run without installation
+- tar.gz: portable root payload for manual install, inspection, or repackaging
+- pkg.tar.zst: direct Arch/pacman package
 
-## Fedora 44 KDE：DNF 仓库安装
+## Fedora 44 KDE: Install From DNF Repository
 
-导入 DNF 仓库：
+Import the DNF repository:
 
 ```bash
 sudo curl -fsSL -o /etc/yum.repos.d/linux-codex-app.repo \
   https://kkkzbh.github.io/linux-codex-app/linux-codex-app.repo
 ```
 
-导入仓库后，DNF 会校验 RPM 签名和仓库元数据签名。当前仓库签名
-key fingerprint 是：
+After importing the repository, DNF verifies the RPM signature and repository metadata signature. The current repository signing key fingerprint is:
 
 ```text
 6096 D6A7 1F4A 86D6 775C  7E2E FB1A DAA3 9B0B FF25
 ```
 
-安装并启动：
+Install and start:
 
 ```bash
 sudo dnf install linux-codex-app
 codex-app
 ```
 
-检查安装状态：
+Check installation state:
 
 ```bash
 linux-codex-app status
 linux-codex-app verify
 ```
 
-以后有新 RPM 发布后，系统更新会通过 DNF 仓库处理：
+After new RPM releases, system updates are handled through the DNF repository:
 
 ```bash
 sudo dnf upgrade linux-codex-app
 ```
 
-如果之前导入过旧版仓库 key，遇到签名校验失败时，重新下载 repo 文件即可让
-DNF 使用当前 GitHub Pages 上的新公钥。
+If an older repository key was imported before and signature verification fails, download the repo file again so DNF uses the current public key from GitHub Pages.
 
-## 可选插件
+## Optional Plugins
 
-Dolphin 文件管理器插件：
+Dolphin file manager plugin:
 
 ```bash
 sudo dnf install linux-codex-app-plugin-dolphin
 ```
 
-Kitty 终端插件：
+Kitty terminal plugin:
 
 ```bash
 sudo dnf install linux-codex-app-plugin-kitty
 ```
 
-Computer Use KDE 桌面控制插件：
+Computer Use KDE desktop-control plugin:
 
 ```bash
 sudo dnf install linux-codex-app-plugin-computer-use
 ```
 
-安装插件包后，在 Codex 的 Plugins UI 中添加本地 marketplace：
+After installing plugin packages, add the local marketplace in Codex Plugins UI:
 
 - Dolphin: `/usr/share/linux-codex-app-plugin-dolphin`
 - Kitty: `/usr/share/linux-codex-app-plugin-kitty`
 - Computer Use: `/usr/share/linux-codex-app-plugin-computer-use`
 
-Dolphin/Kitty/Computer Use 的窗口访问集成默认不启用。需要时显式开启：
+Dolphin/Kitty/Computer Use window-access integration is disabled by default. Enable it explicitly when needed:
 
 ```bash
 linux-codex-app enable dolphin-window-access
@@ -92,23 +92,23 @@ linux-codex-app enable kitty-window-access
 linux-codex-app enable computer-use-access
 ```
 
-关闭 Dolphin/Kitty 的用户级 wrapper/desktop override：
+Disable Dolphin/Kitty user-level wrapper/desktop overrides:
 
 ```bash
 linux-codex-app disable dolphin-window-access
 linux-codex-app disable kitty-window-access
 ```
 
-## GitHub Release 直接下载
+## Download From GitHub Release
 
-当前版本：
+Current version:
 
 ```bash
 VERSION=v0.1.2-20260612.codex26.608.12217
 BASE=https://github.com/kkkzbh/linux-codex-app/releases/download/$VERSION
 ```
 
-下载校验文件：
+Download checksum file:
 
 ```bash
 curl -LO "$BASE/SHA256SUMS"
@@ -116,7 +116,7 @@ curl -LO "$BASE/SHA256SUMS"
 
 ### Fedora/RPM
 
-如果不想导入 DNF 仓库，也可以直接下载 RPM 后安装：
+If you do not want to import the DNF repository, download and install the RPM directly:
 
 ```bash
 curl -LO "$BASE/linux-codex-app-0.1.2-20260612.codex26_608_12217.fc44.x86_64.rpm"
@@ -160,20 +160,18 @@ sha256sum -c SHA256SUMS --ignore-missing
 tar -tzf linux-codex-app-0.1.2-20260612.codex26_608_12217.x86_64.tar.gz | head
 ```
 
-tar.gz 是以 `/` 为根的 portable payload。手工安装时解到目标根目录，或解包检查其中的 `/opt/linux-codex-app`、`/usr/bin/codex-app` 和 desktop metadata。
+The tar.gz is a portable payload rooted at `/`. For manual installation, extract it to the target root, or inspect `/opt/linux-codex-app`, `/usr/bin/codex-app`, and desktop metadata after unpacking.
 
-## 发布
+## Release
 
-正式发布以 Fedora 44 KDE 本机为主路径：
+Official releases use a Fedora 44 KDE local machine as the main path:
 
 ```bash
 npm run release:local
 ```
 
-这个命令会本机构建 RPM、DEB、AppImage、tar.gz、pacman 包和
-`SHA256SUMS`，然后上传到 GitHub Release。GitHub Actions 只保留 Fedora
-容器 smoke，用来验证脚本和无签名构建，不作为正式发布源。
+This command builds RPM, DEB, AppImage, tar.gz, pacman package, and `SHA256SUMS` locally, then uploads them to GitHub Release. GitHub Actions only keeps Fedora container smoke checks to validate scripts and unsigned builds; it is not the official release source.
 
-## 说明
+## Notes
 
-这是非官方社区项目。仓库中的发布链路按“构建阶段固定上游、安装阶段直接可用”设计。公开发布包含转换后 Codex runtime 的二进制产物前，需要单独确认相关再分发风险。
+This is an unofficial community project. The release pipeline is designed around "fixed upstream at build time, directly usable at install time." Before publishing artifacts containing the converted Codex runtime binary, confirm the relevant redistribution risks separately.
