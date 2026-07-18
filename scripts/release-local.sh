@@ -27,6 +27,12 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || error "Missing required command: $1"
 }
 
+GIT_BIN="${GIT_BIN:-/usr/bin/git}"
+if [ ! -x "$GIT_BIN" ]; then
+    GIT_BIN="$(command -v git || true)"
+fi
+[ -x "$GIT_BIN" ] || error "Missing required command: git"
+
 json_field() {
     local key_path="$1"
     node - "$MANIFEST_PATH" "$key_path" <<'NODE'
@@ -39,7 +45,7 @@ NODE
 }
 
 repo_slug() {
-    git -C "$REPO_ROOT" remote get-url origin | sed -E \
+    "$GIT_BIN" -C "$REPO_ROOT" remote get-url origin | sed -E \
         -e 's#^git@github.com:##' \
         -e 's#^https://github.com/##' \
         -e 's#\.git$##'
@@ -75,7 +81,7 @@ sign_rpms_if_possible() {
     rpmdb="$(mktemp -d "${TMPDIR:-/tmp}/linux-codex-app-rpmdb.XXXXXX")"
     rpm --dbpath "$rpmdb" --initdb
     rpmkeys --dbpath "$rpmdb" --import "$public_key_file"
-    rpm -K --dbpath "$rpmdb" "$DIST_DIR"/*.rpm | tee "$REPO_ROOT/.build/rpm-signature-checks.txt"
+    LC_ALL=C rpm -K --dbpath "$rpmdb" "$DIST_DIR"/*.rpm | tee "$REPO_ROOT/.build/rpm-signature-checks.txt"
     while IFS= read -r line; do
         case "$line" in
             *": digests signatures OK") ;;
@@ -157,12 +163,28 @@ publish_pages_repo() {
     local pages_dir="$REPO_ROOT/.build/pages"
 
     rm -rf "$pages_dir"
-    if git ls-remote --exit-code --heads "$repo_url" gh-pages >/dev/null 2>&1; then
-        git clone --depth 1 --branch gh-pages "$repo_url" "$pages_dir"
+    if "$GIT_BIN" ls-remote --exit-code --heads "$repo_url" gh-pages >/dev/null 2>&1; then
+        "$GIT_BIN" clone \
+            --depth 1 \
+            --filter=blob:none \
+            --no-checkout \
+            --single-branch \
+            --branch gh-pages \
+            "$repo_url" \
+            "$pages_dir"
+        "$GIT_BIN" -C "$pages_dir" sparse-checkout init --no-cone
+        "$GIT_BIN" -C "$pages_dir" sparse-checkout set \
+            "/.nojekyll" \
+            "/RPM-GPG-KEY-linux-codex-app" \
+            "/index.html" \
+            "/linux-codex-app.repo" \
+            "/rpm/fedora/$fedora_release/$target_arch/packages.json" \
+            "/rpm/fedora/$fedora_release/$target_arch/repodata/*"
+        "$GIT_BIN" -C "$pages_dir" checkout gh-pages
     else
         mkdir "$pages_dir"
-        git -C "$pages_dir" init -b gh-pages
-        git -C "$pages_dir" remote add origin "$repo_url"
+        "$GIT_BIN" -C "$pages_dir" init -b gh-pages
+        "$GIT_BIN" -C "$pages_dir" remote add origin "$repo_url"
     fi
 
     node "$REPO_ROOT/scripts/publish-github-pages-repo.mjs" \
@@ -176,18 +198,17 @@ publish_pages_repo() {
         --gpg-key-id "$RPM_SIGNING_KEY_ID" \
         --arch "$target_arch"
 
-    git -C "$pages_dir" config user.name "linux-codex-app local release"
-    git -C "$pages_dir" config user.email "linux-codex-app@users.noreply.github.com"
-    git -C "$pages_dir" add .
-    if git -C "$pages_dir" diff --cached --quiet; then
+    "$GIT_BIN" -C "$pages_dir" config user.name "linux-codex-app local release"
+    "$GIT_BIN" -C "$pages_dir" config user.email "linux-codex-app@users.noreply.github.com"
+    "$GIT_BIN" -C "$pages_dir" add .
+    if "$GIT_BIN" -C "$pages_dir" diff --cached --quiet; then
         info "No DNF repository metadata changes"
     else
-        git -C "$pages_dir" commit -m "Publish RPM repository for $tag"
-        git -C "$pages_dir" push origin gh-pages
+        "$GIT_BIN" -C "$pages_dir" commit -m "Publish RPM repository for $tag"
+        "$GIT_BIN" -C "$pages_dir" push origin gh-pages
     fi
 }
 
-require_cmd git
 require_cmd node
 require_cmd rpm
 

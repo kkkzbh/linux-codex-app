@@ -13,7 +13,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -103,9 +102,29 @@ function copyOrDownloadPackage(entry, sourceDir, targetDir) {
   if (existsSync(sourcePath)) {
     copyFileSync(sourcePath, targetPath);
   } else {
-    execFileSync("curl", ["-L", "--fail", "--show-error", "--output", targetPath, entry.downloadUrl], {
-      stdio: "inherit",
-    });
+    execFileSync(
+      "curl",
+      [
+        "-L",
+        "--fail",
+        "--show-error",
+        "--retry",
+        "4",
+        "--retry-all-errors",
+        "--retry-delay",
+        "2",
+        "--connect-timeout",
+        "30",
+        "--max-time",
+        "900",
+        "--output",
+        targetPath,
+        entry.downloadUrl,
+      ],
+      {
+        stdio: "inherit",
+      },
+    );
   }
 
   const actualSha = sha256(targetPath);
@@ -268,7 +287,9 @@ function main() {
     fail("No RPM packages found to publish");
   }
 
-  const workDir = mkdtempSync(path.join(os.tmpdir(), "linux-codex-app-repo-"));
+  const workRoot = path.join(path.dirname(pagesDirAbs), "rpm-repo-work");
+  mkdirSync(workRoot, { recursive: true });
+  const workDir = mkdtempSync(path.join(workRoot, "linux-codex-app-repo-"));
   const rpmWorkDir = path.join(workDir, "rpms");
   mkdirSync(rpmWorkDir, { recursive: true });
 

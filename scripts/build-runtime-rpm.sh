@@ -39,8 +39,34 @@ process.stdout.write(String(value));
 NODE
 }
 
+json_file_field() {
+    local file_path="$1"
+    local key_path="$2"
+    node - "$file_path" "$key_path" <<'NODE'
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const value = process.argv[3].split(".").reduce((acc, key) => acc?.[key], data);
+if (value === undefined || value === null) process.exit(2);
+process.stdout.write(String(value));
+NODE
+}
+
 sha256_file() {
     sha256sum "$1" | awk '{print $1}'
+}
+
+download_pinned_file() {
+    local url="$1"
+    local output_path="$2"
+
+    curl -L --fail --show-error \
+        --retry 4 \
+        --retry-all-errors \
+        --retry-delay 2 \
+        --connect-timeout 30 \
+        --max-time 900 \
+        --output "$output_path" \
+        "$url"
 }
 
 require_cmd node
@@ -102,7 +128,7 @@ sevenzip_archive="$tools_dir/7zip-${sevenzip_version}-linux-x64.tar.xz"
 sevenzip_extract_dir="$tools_dir/7zip-${sevenzip_version}"
 sevenzip_bin="$sevenzip_extract_dir/7zz"
 info "Downloading pinned 7-Zip extractor: $sevenzip_version"
-curl -L --fail --show-error --output "$sevenzip_archive" "$sevenzip_url"
+download_pinned_file "$sevenzip_url" "$sevenzip_archive"
 actual_sevenzip_sha="$(sha256_file "$sevenzip_archive")"
 if [ "$actual_sevenzip_sha" != "$sevenzip_sha256" ]; then
     error "7-Zip archive sha256 mismatch: expected $sevenzip_sha256, got $actual_sevenzip_sha"
@@ -130,7 +156,7 @@ done
 
 if [ ! -f "$dmg_path" ]; then
     info "Downloading pinned Codex DMG"
-    curl -L --fail --show-error --output "$dmg_path" "$dmg_url"
+    download_pinned_file "$dmg_url" "$dmg_path"
 fi
 
 actual_size="$(stat -c %s "$dmg_path")"
@@ -171,14 +197,23 @@ CODEX_LINUX_DESKTOP_ASSETS=0 \
 info "Installing pinned Codex CLI into RPM payload"
 mkdir -p "$cli_dir"
 cli_archive="$upstream_dir/codex-package-${cli_vendor_target}.tar.gz"
-info "Downloading pinned Codex CLI package: $cli_release / $cli_vendor_target"
-curl -L --fail --show-error --output "$cli_archive" "$cli_archive_url"
-actual_cli_sha="$(sha256_file "$cli_archive")"
-if [ "$actual_cli_sha" != "$cli_archive_sha256" ]; then
-    error "Codex CLI package sha256 mismatch: expected $cli_archive_sha256, got $actual_cli_sha"
-fi
+local_cli_package_dir="${CODEX_STANDALONE_CURRENT:-${CODEX_HOME:-$HOME/.codex}/packages/standalone/current}"
+local_cli_package_json="$local_cli_package_dir/codex-package.json"
+if [ -f "$local_cli_package_json" ] \
+    && [ "$(json_file_field "$local_cli_package_json" version)" = "$cli_version" ] \
+    && [ "$(json_file_field "$local_cli_package_json" target)" = "$cli_vendor_target" ]; then
+    info "Using local pinned Codex CLI package: $local_cli_package_dir"
+    rsync -a "$local_cli_package_dir/" "$cli_dir/"
+else
+    info "Downloading pinned Codex CLI package: $cli_release / $cli_vendor_target"
+    download_pinned_file "$cli_archive_url" "$cli_archive"
+    actual_cli_sha="$(sha256_file "$cli_archive")"
+    if [ "$actual_cli_sha" != "$cli_archive_sha256" ]; then
+        error "Codex CLI package sha256 mismatch: expected $cli_archive_sha256, got $actual_cli_sha"
+    fi
 
-tar -xzf "$cli_archive" -C "$cli_dir"
+    tar -xzf "$cli_archive" -C "$cli_dir"
+fi
 [ -x "$cli_dir/bin/codex" ] || error "Expected Codex CLI binary after extraction: $cli_dir/bin/codex"
 chmod +x "$cli_dir/bin/codex"
 [ -x "$cli_dir/codex-path/rg" ] || error "Expected packaged ripgrep after extraction: $cli_dir/codex-path/rg"
