@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "id": "codex-app-20260717",
+  "appVersion": "26.715.21425",
+  "appBuildNumber": "5488",
+  "rpmVersion": "0.1.5",
+  "rpmRelease": "1.codex26_715_21425",
+  "targetArch": "x86_64",
+  "dmg": {
+    "url": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",
+    "size": 618657103,
+    "etag": "0x8DEE3A842123049",
+    "lastModified": "Fri, 17 Jul 2026 02:08:13 GMT",
+    "appAsarPath": "ChatGPT Installer/ChatGPT.app/Contents/Resources/app.asar",
+    "sha256": "ff459150991612007549270d2d28c5e78cec6bd6ac200a7ada5ed6c031369b87",
+    "appAsarSha256": "5db4c67090c0521fa717e83e46cb0a6175cb6c16fb89064223753bdf05cff0aa"
+  },
+  "electron": {
+    "version": "42.1.0"
+  },
+  "buildTools": {
+    "sevenZip": {
+      "version": "25.01",
+      "url": "https://www.7-zip.org/a/7z2501-linux-x64.tar.xz",
+      "sha256": "4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4"
+    }
+  },
+  "codexCli": {
+    "release": "rust-v0.144.5",
+    "version": "0.144.5",
+    "vendorTarget": "x86_64-unknown-linux-musl",
+    "archiveUrl": "https://github.com/openai/codex/releases/download/rust-v0.144.5/codex-package-x86_64-unknown-linux-musl.tar.gz",
+    "sha256": "23a7022a493c5404c50c62a4ad5655836adbee019d93c73114954d8daff20053"
+  },
+  "linuxPatchVersion": 102
+}
