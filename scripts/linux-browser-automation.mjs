@@ -3,9 +3,10 @@
 import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import net from "node:net";
+import path from "node:path";
 import process from "node:process";
 
 const serverInfo = {
@@ -72,6 +73,16 @@ let currentExec = null;
 let browserAutomationEnv = createBrowserAutomationEnv();
 let kernel = createKernel();
 let jsQueue = Promise.resolve();
+const pendingRequestIds = new Set();
+const cancelledRequestIds = new Set();
+
+class FatalExecutionError extends Error {
+  constructor(message, exitCode) {
+    super(message);
+    this.name = "FatalExecutionError";
+    this.exitCode = exitCode;
+  }
+}
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -83,6 +94,16 @@ function sendResult(id, result) {
 
 function sendError(id, code, message, data) {
   send({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } });
+}
+
+function requestIdKey(id) {
+  if (typeof id === "string") {
+    return `string:${id}`;
+  }
+  if (typeof id === "number") {
+    return Number.isFinite(id) ? `number:${id}` : null;
+  }
+  return null;
 }
 
 function parseEnvironmentEntries(raw) {
@@ -585,7 +606,78 @@ function getDesktopSocketEnv(name) {
   return null;
 }
 
-async function executeJs(args, requestMeta) {
+function normalizeTurnMetadata(requestMeta) {
+  const metadata = requestMeta?.["x-codex-turn-metadata"];
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  const sessionId = metadata.thread_source === "subagent" && typeof metadata.thread_id === "string"
+    ? metadata.thread_id
+    : metadata.session_id;
+  const turnId = metadata.turn_id;
+
+  if (typeof sessionId !== "string" || sessionId.length === 0 || typeof turnId !== "string" || turnId.length === 0) {
+    return null;
+  }
+
+  return { sessionId, turnId };
+}
+
+function activeExecsDir() {
+  const codexHome = browserAutomationEnv.CODEX_HOME ?? process.env.CODEX_HOME;
+  if (typeof codexHome !== "string" || codexHome.trim().length === 0) {
+    return null;
+  }
+
+  return path.join(codexHome, "browser_automation", "active_execs");
+}
+
+function registerActiveExec(execId, requestMeta) {
+  const turnMetadata = normalizeTurnMetadata(requestMeta);
+  const dir = activeExecsDir();
+  if (turnMetadata == null || dir == null) {
+    return null;
+  }
+
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const recordPath = path.join(dir, `${execId}.json`);
+  writeFileSync(
+    recordPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        execId,
+        sessionId: turnMetadata.sessionId,
+        turnId: turnMetadata.turnId,
+        browserAutomationPid: process.ppid,
+        kernelPid: process.pid,
+        startedAtMs: Date.now(),
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+
+  return () => {
+    rmSync(recordPath, { force: true });
+  };
+}
+
+function terminateAfterResponse(exitCode = 130) {
+  setImmediate(() => {
+    process.exit(exitCode);
+  });
+}
+
+function terminateCurrentExec(exitCode = 130) {
+  currentExec?.cleanup?.();
+  currentExec = null;
+  process.exit(exitCode);
+}
+
+async function executeJs(args, requestMeta, requestKey) {
   const code = args?.code ?? args?.input ?? args?.source;
 
   if (typeof code !== "string" || code.trim() === "") {
@@ -600,7 +692,7 @@ async function executeJs(args, requestMeta) {
   state.responseMeta = {};
   state.requestMeta = requestMeta ?? {};
 
-  currentExec = { id: execId };
+  currentExec = { id: execId, requestKey, cleanup: registerActiveExec(execId, state.requestMeta) };
 
   try {
     const result = await withTimeout(runCode(code), timeoutMs);
@@ -610,6 +702,7 @@ async function executeJs(args, requestMeta) {
 
     return buildToolResult(state);
   } finally {
+    currentExec?.cleanup?.();
     currentExec = null;
   }
 }
@@ -627,7 +720,7 @@ async function runCode(code) {
 function withTimeout(promise, timeoutMs) {
   let timeout;
   const timeoutPromise = new Promise((_, reject) => {
-    timeout = setTimeout(() => reject(new Error("js execution timed out")), timeoutMs);
+    timeout = setTimeout(() => reject(new FatalExecutionError("js execution timed out", 124)), timeoutMs);
   });
 
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
@@ -684,13 +777,13 @@ async function handleRequest(message) {
 
       try {
         if (toolName === "js") {
-          const result = await enqueueJsOperation(() => executeJs(args, requestMeta));
+          const result = await enqueueJsOperation(message.id, (requestKey) => executeJs(args, requestMeta, requestKey));
           sendResult(message.id, result);
           return;
         }
 
         if (toolName === "js_reset") {
-          const result = await enqueueJsOperation(() => resetKernel());
+          const result = await enqueueJsOperation(message.id, () => resetKernel());
           sendResult(message.id, result);
           return;
         }
@@ -701,6 +794,9 @@ async function handleRequest(message) {
           content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
           isError: true,
         });
+        if (error instanceof FatalExecutionError) {
+          terminateAfterResponse(error.exitCode);
+        }
       }
       return;
     }
@@ -709,15 +805,49 @@ async function handleRequest(message) {
   }
 }
 
-async function enqueueJsOperation(operation) {
-  const run = jsQueue.then(operation, operation);
+async function enqueueJsOperation(requestId, operation) {
+  const requestKey = requestIdKey(requestId);
+  if (requestKey != null) {
+    pendingRequestIds.add(requestKey);
+  }
+
+  async function runOperation() {
+    try {
+      if (requestKey != null && cancelledRequestIds.delete(requestKey)) {
+        throw new Error("tool call cancelled");
+      }
+
+      return await operation(requestKey);
+    } finally {
+      if (requestKey != null) {
+        pendingRequestIds.delete(requestKey);
+        cancelledRequestIds.delete(requestKey);
+      }
+    }
+  }
+
+  const run = jsQueue.then(runOperation, runOperation);
   jsQueue = run.catch(() => {});
   return await run;
 }
 
 function handleNotification(message) {
-  if (message.method === "notifications/cancelled" && currentExec != null) {
-    currentExec = null;
+  if (message.method !== "notifications/cancelled") {
+    return;
+  }
+
+  const cancelledRequestKey = requestIdKey(message.params?.requestId);
+  if (cancelledRequestKey == null) {
+    return;
+  }
+
+  if (currentExec?.requestKey === cancelledRequestKey) {
+    terminateCurrentExec(130);
+    return;
+  }
+
+  if (pendingRequestIds.has(cancelledRequestKey)) {
+    cancelledRequestIds.add(cancelledRequestKey);
   }
 }
 

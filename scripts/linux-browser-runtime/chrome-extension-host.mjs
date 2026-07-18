@@ -48,6 +48,7 @@ function rewriteRequestForChrome(client, message, frame) {
         }),
         "utf8",
       ),
+      () => cleanupAndExit(1),
     );
   }, CHROME_NATIVE_HOST_REQUEST_TIMEOUT_MS);
   timeout.unref?.();
@@ -73,10 +74,13 @@ function writeToChrome(frame) {
   process.stdout.write(encodeFrame(frame));
 }
 
-function writeToClient(client, frame) {
+function writeToClient(client, frame, callback = undefined) {
   if (!client.destroyed) {
-    client.write(encodeFrame(frame));
+    client.write(encodeFrame(frame), callback);
+    return;
   }
+
+  callback?.();
 }
 
 function routeChromeFrame(frame) {

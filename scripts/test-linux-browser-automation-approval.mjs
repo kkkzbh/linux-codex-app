@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -131,8 +131,15 @@ function startRepl(env = {}) {
     }
   });
 
-  function request(method, params) {
-    const id = startRepl.nextId++;
+  child.once("exit", (code, signal) => {
+    for (const [id, { reject, timer }] of pending.entries()) {
+      clearTimeout(timer);
+      reject(new Error(`browser_automation exited before response: code=${code} signal=${signal}`));
+      pending.delete(id);
+    }
+  });
+
+  function requestWithId(id, method, params) {
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -143,11 +150,35 @@ function startRepl(env = {}) {
     });
   }
 
-  function close() {
-    child.kill("SIGTERM");
+  function request(method, params) {
+    return requestWithId(startRepl.nextId++, method, params);
   }
 
-  return { request, close };
+  function notify(method, params = {}) {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+  }
+
+  function waitForExit(timeoutMs = 5_000) {
+    if (child.exitCode != null || child.signalCode != null) {
+      return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for browser_automation to exit")), timeoutMs);
+      child.once("exit", (code, signal) => {
+        clearTimeout(timer);
+        resolve({ code, signal });
+      });
+    });
+  }
+
+  function close() {
+    if (child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+    }
+  }
+
+  return { child, request, requestWithId, notify, waitForExit, close };
 }
 
 startRepl.nextId = 1;
@@ -184,6 +215,48 @@ async function withRepl(env, fn) {
   } finally {
     repl.close();
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(condition, label, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  for (;;) {
+    const value = await condition();
+    if (value) {
+      return value;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out waiting for ${label}`);
+    }
+    await sleep(25);
+  }
+}
+
+function turnMetadata(sessionId, turnId) {
+  return {
+    "x-codex-turn-metadata": {
+      session_id: sessionId,
+      turn_id: turnId,
+    },
+  };
+}
+
+function activeExecRecordPaths(codexHome) {
+  const dir = path.join(codexHome, "browser_automation", "active_execs");
+  if (!existsSync(dir)) {
+    return [];
+  }
+
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => path.join(dir, name));
+}
+
+async function waitForActiveExecRecord(codexHome) {
+  return await waitFor(() => activeExecRecordPaths(codexHome)[0] ?? null, "browser_automation active exec record");
 }
 
 async function testBrowserAutomationExposesEnvForBrowserClient() {
@@ -248,6 +321,206 @@ async function testBrowserAutomationToolDescriptionNamesChromeEntrypoint() {
     assert.match(jsTool.description, /agent\.browsers\.get\("extension"\)/);
     assert.match(jsTool.description, /do not fall back to Computer Use/i);
   });
+}
+
+async function testActiveExecRecordTracksTurnExecution() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-active-exec-"));
+
+  try {
+    await withRepl({ CODEX_HOME: tempDir }, async (repl) => {
+      const pending = repl.request("tools/call", {
+        name: "js",
+        arguments: {
+          code: `await new Promise((resolve) => setTimeout(resolve, 150)); browserAutomation.write("done");`,
+        },
+        _meta: turnMetadata("session-active", "turn-active"),
+      });
+
+      const recordPath = await waitForActiveExecRecord(tempDir);
+      const record = JSON.parse(readFileSync(recordPath, "utf8"));
+      assert.equal(record.version, 1);
+      assert.equal(record.sessionId, "session-active");
+      assert.equal(record.turnId, "turn-active");
+      assert.equal(record.browserAutomationPid, process.pid);
+      assert.equal(record.kernelPid, repl.child.pid);
+
+      const result = await pending;
+      const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(result.isError, undefined, text);
+      assert.equal(text, "done");
+      assert.deepEqual(activeExecRecordPaths(tempDir), []);
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testCancelledExecutionTerminatesBrowserAutomationProcess() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-cancel-"));
+
+  try {
+    const repl = startRepl({ CODEX_HOME: tempDir });
+    try {
+      await repl.request("initialize", {});
+      const pending = repl.requestWithId(401, "tools/call", {
+        name: "js",
+        arguments: {
+          code: `await new Promise(() => {});`,
+        },
+        _meta: turnMetadata("session-cancel", "turn-cancel"),
+      });
+
+      const recordPath = await waitForActiveExecRecord(tempDir);
+      assert.equal(JSON.parse(readFileSync(recordPath, "utf8")).kernelPid, repl.child.pid);
+      repl.notify("notifications/cancelled", { requestId: 401 });
+      const exit = await repl.waitForExit();
+      assert.equal(exit.code, 130);
+      await assert.rejects(pending, /browser_automation exited before response/);
+      assert.deepEqual(activeExecRecordPaths(tempDir), []);
+    } finally {
+      repl.close();
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testCancelledQueuedRequestDoesNotTerminateActiveExecution() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-queued-cancel-"));
+
+  try {
+    const repl = startRepl({ CODEX_HOME: tempDir });
+    try {
+      await repl.request("initialize", {});
+      const active = repl.requestWithId(501, "tools/call", {
+        name: "js",
+        arguments: {
+          code: `await new Promise((resolve) => setTimeout(resolve, 150)); browserAutomation.write("active");`,
+        },
+        _meta: turnMetadata("session-queued", "turn-active"),
+      });
+      const queued = repl.requestWithId(502, "tools/call", {
+        name: "js",
+        arguments: {
+          code: `browserAutomation.write("queued");`,
+        },
+        _meta: turnMetadata("session-queued", "turn-queued"),
+      });
+
+      await waitForActiveExecRecord(tempDir);
+      repl.notify("notifications/cancelled", { requestId: 502 });
+      await sleep(75);
+      assert.equal(repl.child.exitCode, null);
+      assert.equal(repl.child.signalCode, null);
+
+      const activeResult = await active;
+      const activeText = activeResult.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(activeResult.isError, undefined, activeText);
+      assert.equal(activeText, "active");
+
+      const queuedResult = await queued;
+      const queuedText = queuedResult.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(queuedResult.isError, true);
+      assert.match(queuedText, /tool call cancelled/);
+      assert.equal(repl.child.exitCode, null);
+      assert.deepEqual(activeExecRecordPaths(tempDir), []);
+    } finally {
+      repl.close();
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testUnknownCancellationDoesNotCancelFutureRequestId() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-unknown-cancel-"));
+
+  try {
+    const repl = startRepl({ CODEX_HOME: tempDir });
+    try {
+      await repl.request("initialize", {});
+      repl.notify("notifications/cancelled", { requestId: 777 });
+
+      const result = await repl.requestWithId(777, "tools/call", {
+        name: "js",
+        arguments: {
+          code: `browserAutomation.write("future");`,
+        },
+        _meta: turnMetadata("session-future", "turn-future"),
+      });
+
+      const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(result.isError, undefined, text);
+      assert.equal(text, "future");
+    } finally {
+      repl.close();
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testCancellationRequestIdTypeMustMatch() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-cancel-id-type-"));
+
+  try {
+    const repl = startRepl({ CODEX_HOME: tempDir });
+    try {
+      await repl.request("initialize", {});
+      const active = repl.requestWithId(1, "tools/call", {
+        name: "js",
+        arguments: {
+          code: `await new Promise((resolve) => setTimeout(resolve, 120)); browserAutomation.write("typed");`,
+        },
+        _meta: turnMetadata("session-type", "turn-type"),
+      });
+
+      await waitForActiveExecRecord(tempDir);
+      repl.notify("notifications/cancelled", { requestId: "1" });
+      await sleep(50);
+      assert.equal(repl.child.exitCode, null);
+      assert.equal(repl.child.signalCode, null);
+
+      const result = await active;
+      const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(result.isError, undefined, text);
+      assert.equal(text, "typed");
+    } finally {
+      repl.close();
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testTimedOutExecutionTerminatesBrowserAutomationProcessAfterResponse() {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-browser-automation-timeout-"));
+
+  try {
+    const repl = startRepl({ CODEX_HOME: tempDir });
+    try {
+      await repl.request("initialize", {});
+      const result = await repl.request("tools/call", {
+        name: "js",
+        arguments: {
+          code: `await new Promise(() => {});`,
+          timeout_ms: 50,
+        },
+        _meta: turnMetadata("session-timeout", "turn-timeout"),
+      });
+
+      const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+      assert.equal(result.isError, true);
+      assert.match(text, /js execution timed out/);
+      const exit = await repl.waitForExit();
+      assert.equal(exit.code, 124);
+      assert.deepEqual(activeExecRecordPaths(tempDir), []);
+    } finally {
+      repl.close();
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function testBrowserAutomationRecoversDesktopEnvFromSystemdUserEnvironment() {
@@ -436,6 +709,12 @@ async function testPublicOriginWithoutDesktopBridgeFailsClosed() {
 await testBrowserAutomationExposesEnvForBrowserClient();
 await testBrowserAutomationExposesTrustedConfigForBrowserClient();
 await testBrowserAutomationToolDescriptionNamesChromeEntrypoint();
+await testActiveExecRecordTracksTurnExecution();
+await testCancelledExecutionTerminatesBrowserAutomationProcess();
+await testCancelledQueuedRequestDoesNotTerminateActiveExecution();
+await testUnknownCancellationDoesNotCancelFutureRequestId();
+await testCancellationRequestIdTypeMustMatch();
+await testTimedOutExecutionTerminatesBrowserAutomationProcessAfterResponse();
 await testBrowserAutomationRecoversDesktopEnvFromSystemdUserEnvironment();
 await testLocalOriginAcceptsWithoutClientApproval();
 await testDesktopApprovalAccepts();

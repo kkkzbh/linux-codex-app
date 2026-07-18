@@ -1,23 +1,23 @@
 import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../replace-utils.mjs";
 
 const requiredMarkers = [
-  "let e=await ee(`/`);if(e==null)return;he(e)",
+  "let e=await ie(`/`);if(e==null)return;be(e)",
   "codex-linux-second-instance-new-window-failed",
 ];
 
 const forbiddenMarkers = [
-  "let e=j.getPrimaryWindow()??await ee(`/`);if(e==null)return;he(e)",
+  "let e=L.getPrimaryWindow()??await ie(`/`);if(e==null)return;be(e)",
 ];
 
 const upstreamSecondInstanceWindowHandler =
-  "ge=async()=>{if(M)try{j.hotkeyWindowLifecycleManager.hide();let e=j.getPrimaryWindow()??await ee(`/`);if(e==null)return;he(e)}catch(e){g.reportNonFatal(e instanceof Error?e:`Failed to open window on second instance`,{kind:`second-instance-open-window-failed`})}}";
+  "xe=async()=>{if(R)try{L.hotkeyWindowLifecycleManager.hide();let e=L.getPrimaryWindow()??await ie(`/`);if(e==null)return;be(e)}catch(e){b.reportNonFatal(e instanceof Error?e:`Failed to open window on second instance`,{kind:`second-instance-open-window-failed`})}}";
 
 const patchedSecondInstanceWindowHandler =
-  "ge=async()=>{if(M)try{j.hotkeyWindowLifecycleManager.hide();let e=await ee(`/`);if(e==null)return;he(e)}catch(e){g.reportNonFatal(e instanceof Error?e:`Failed to open new window on second instance`,{kind:`codex-linux-second-instance-new-window-failed`})}}";
+  "xe=async()=>{if(R)try{L.hotkeyWindowLifecycleManager.hide();let e=await ie(`/`);if(e==null)return;be(e)}catch(e){b.reportNonFatal(e instanceof Error?e:`Failed to open new window on second instance`,{kind:`codex-linux-second-instance-new-window-failed`})}}";
 
 export const multiWindowSecondInstanceFeature = {
   id: "multi-window-second-instance",
-  version: 1,
+  version: 2,
   requiredMarkers,
   forbiddenMarkers,
   apply(bundleSources) {

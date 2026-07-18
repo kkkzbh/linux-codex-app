@@ -4,7 +4,6 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERIFY_SCRIPT="$SCRIPT_DIR/verify-install.sh"
 DOLPHIN_WINDOW_ACCESS_SCRIPT="$SCRIPT_DIR/install-dolphin-window-access.sh"
-KITTY_WINDOW_ACCESS_SCRIPT="$SCRIPT_DIR/install-kitty-window-access.sh"
 COMPUTER_USE_ACCESS_SCRIPT="$SCRIPT_DIR/install-computer-use-access.sh"
 PRUNE_STAGED_INSTALLS_SCRIPT="$SCRIPT_DIR/prune-staged-installs.sh"
 VERIFIED_MARKER=".codex-linux-verified"
@@ -300,7 +299,6 @@ Categories=Development;
 StartupNotify=true
 StartupWMClass=Codex
 X-GNOME-WMClass=Codex
-X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-Wayland-Interfaces=org_kde_plasma_window_management,zkde_screencast_unstable_v1
 EOF
 
@@ -319,7 +317,6 @@ StartupNotify=true
 StartupWMClass=Codex
 X-GNOME-WMClass=Codex
 NoDisplay=true
-X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-Wayland-Interfaces=org_kde_plasma_window_management,zkde_screencast_unstable_v1
 EOF
 
@@ -338,7 +335,6 @@ StartupNotify=true
 StartupWMClass=Codex
 X-GNOME-WMClass=Codex
 NoDisplay=true
-X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-Wayland-Interfaces=org_kde_plasma_window_management,zkde_screencast_unstable_v1
 EOF
 
@@ -360,19 +356,11 @@ if [ "${CODEX_DOLPHIN_WINDOW_ACCESS:-1}" != "0" ]; then
     fi
 fi
 
-if [ "${CODEX_KITTY_WINDOW_ACCESS:-1}" != "0" ]; then
-    if [ -x "$KITTY_WINDOW_ACCESS_SCRIPT" ]; then
-        "$KITTY_WINDOW_ACCESS_SCRIPT" || warn "Could not enable Kitty window access for future user-opened kitty windows"
-    else
-        warn "Kitty window access helper is missing: $KITTY_WINDOW_ACCESS_SCRIPT"
-    fi
-fi
-
 if [ "${CODEX_COMPUTER_USE_ACCESS:-1}" != "0" ]; then
     if [ -x "$COMPUTER_USE_ACCESS_SCRIPT" ]; then
-        "$COMPUTER_USE_ACCESS_SCRIPT" || warn "Could not enable Computer Use direct access"
+        "$COMPUTER_USE_ACCESS_SCRIPT"
     else
-        warn "Computer Use access helper is missing: $COMPUTER_USE_ACCESS_SCRIPT"
+        error "Computer Use access helper is missing: $COMPUTER_USE_ACCESS_SCRIPT"
     fi
 fi
 

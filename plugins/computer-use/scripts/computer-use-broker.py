@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 
 import base64
+import configparser
+import contextlib
+import fcntl
 import io
 import json
+import math
 import os
 import re
+import select
+import shutil
+import signal
 import shlex
 import subprocess
 import sys
@@ -13,6 +20,8 @@ import threading
 import time
 import traceback
 import uuid
+from collections import OrderedDict, deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -29,6 +38,9 @@ SNI_WATCHER_BUS_NAME = "org.kde.StatusNotifierWatcher"
 SNI_WATCHER_OBJECT_PATH = "/StatusNotifierWatcher"
 SNI_WATCHER_IFACE = "org.kde.StatusNotifierWatcher"
 SNI_ITEM_IFACE = "org.kde.StatusNotifierItem"
+COMPUTER_USE_PROTOCOL_VERSION = 2
+AT_SPI_COORD_TYPE_SCREEN = 0
+AT_SPI_COORD_TYPE_WINDOW = 1
 
 DEVICE_KEYBOARD = 1
 DEVICE_POINTER = 2
@@ -39,12 +51,13 @@ BUTTON_CODES = {
     "right": 273,
     "middle": 274,
 }
-DEFAULT_POINTER_ANIMATION_MS = 220
-DEFAULT_POINTER_ANIMATION_STEP_PX = 18
-MAX_POINTER_ANIMATION_STEPS = 80
-MIN_POINTER_ANIMATION_STEPS = 2
+POINTER_FRAME_MS = 8
+MIN_POINTER_ANIMATION_MS = 90
+MAX_POINTER_ANIMATION_MS = 230
+CURSOR_THEME_COMMAND_TIMEOUT_SECONDS = 10.0
+CURSOR_GLOW_THEME_NAME = "Codex-Computer-Use-Glow"
 SCRIPT_DIR = Path(__file__).resolve().parent
-GLOW_OVERLAY_SCRIPT = SCRIPT_DIR / "computer-use-glow-overlay.py"
+ISOLATED_SESSION_SCRIPT = SCRIPT_DIR / "computer-use-isolated-session.py"
 MODIFIER_KEYSYMS = {
     "shift": 0xFFE1,
     "ctrl": 0xFFE3,
@@ -188,14 +201,6 @@ def session_bus():
     return dbus.SessionBus()
 
 
-def requested_backend(params):
-    backend = params.get("backend") or os.environ.get("CODEX_COMPUTER_USE_BACKEND") or "direct"
-    backend = str(backend).strip().lower()
-    if backend not in ("direct", "portal", "auto"):
-        raise ValueError(f"unknown backend: {backend}")
-    return backend
-
-
 def ensure_portal_input(params):
     backend = params.get("backend")
     if backend is not None and str(backend).strip().lower() != "portal":
@@ -203,176 +208,967 @@ def ensure_portal_input(params):
 
 
 def current_pointer_position():
-    try:
-        data = run_kwin_script("cursor_position", {})
-        return (float(data["x"]), float(data["y"]))
-    except Exception as error:
-        debug(f"could not read current pointer position: {error}")
-        return None
+    data = run_kwin_script("cursor_position", {})
+    return (float(data["x"]), float(data["y"]))
 
 
-def pointer_animation_params(params, start_x, start_y, x, y):
-    duration_ms = int(
-        params.get(
-            "animation_ms",
-            os.environ.get("CODEX_COMPUTER_USE_POINTER_ANIMATION_MS", DEFAULT_POINTER_ANIMATION_MS),
-        )
-    )
-    duration_ms = max(0, min(2000, duration_ms))
+def pointer_animation_params(start_x, start_y, x, y):
     distance = ((x - start_x) ** 2 + (y - start_y) ** 2) ** 0.5
-    if "animation_steps" in params:
-        steps = int(params["animation_steps"])
-    else:
-        steps = int(round(distance / DEFAULT_POINTER_ANIMATION_STEP_PX))
-    steps = max(MIN_POINTER_ANIMATION_STEPS, min(MAX_POINTER_ANIMATION_STEPS, steps))
     if distance < 1:
         return (0, 1)
+    duration_ms = round(80 + 55 * math.log2(1 + distance / 120))
+    duration_ms = max(MIN_POINTER_ANIMATION_MS, min(MAX_POINTER_ANIMATION_MS, duration_ms))
+    steps = math.ceil(duration_ms / POINTER_FRAME_MS)
     return (duration_ms, steps)
 
 
-def smoothstep(t):
+def minimum_jerk(t):
     t = max(0.0, min(1.0, float(t)))
-    return t * t * (3 - 2 * t)
+    return t * t * t * (10 + t * (-15 + 6 * t))
 
 
-def direct_setup_hint(kind):
-    if kind == "observe":
-        return (
-            "Direct screenshot requires launching Codex from the activated KDE desktop entry "
-            "that declares X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2. "
-            "Run scripts/activate-install.sh for the staged install and restart Codex from that launcher."
+def screenshot_helper_path():
+    override = os.environ.get("CODEX_COMPUTER_USE_SCREENSHOT_HELPER")
+    if override:
+        return Path(override).expanduser()
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share"))
+    state_dir = Path(os.environ.get("CODEX_APP_STATE_DIR") or (data_home / "codex-app"))
+    return state_dir / "computer-use" / "codex-computer-use-screenshot"
+
+
+def glow_theme_path():
+    override = os.environ.get("CODEX_COMPUTER_USE_CURSOR_GLOW_THEME_PATH")
+    if override:
+        return Path(override).expanduser()
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share"))
+    return data_home / "icons" / CURSOR_GLOW_THEME_NAME
+
+
+class IsolatedSessionSupervisor:
+    STATES = ("Stopped", "Starting", "Ready", "Failed", "Stopping")
+
+    def __init__(self):
+        self.state = "Stopped"
+        self.session_id = None
+        self.unit_name = None
+        self.profile_dir = None
+        self.runtime_dir = None
+        self.process = None
+        self.next_request_id = 1
+        self.state_error = None
+        self.state_lock = threading.RLock()
+        self.operation_lock = threading.Lock()
+        self.stderr_lock = threading.Lock()
+        self.stderr_text = ""
+        self.stderr_thread = None
+
+    def start(self, params):
+        timeout_ms = int(params.get("timeout_ms", 60000))
+        screen_width = int(params.get("screen_width", 1280))
+        screen_height = int(params.get("screen_height", 800))
+        if screen_width < 320 or screen_width > 7680 or screen_height < 240 or screen_height > 4320:
+            raise ValueError("isolated screen dimensions are outside the supported range")
+        with self.state_lock:
+            if self.state != "Stopped":
+                raise RuntimeError(f"isolated session cannot start from state {self.state}")
+            if not ISOLATED_SESSION_SCRIPT.is_file():
+                raise RuntimeError(f"isolated session helper is missing: {ISOLATED_SESSION_SCRIPT}")
+            self.state = "Starting"
+            self.state_error = None
+            with self.stderr_lock:
+                self.stderr_text = ""
+            self.session_id = "isolated-" + uuid.uuid4().hex
+            unit_token = self.session_id.removeprefix("isolated-")[:20]
+            self.unit_name = f"codex-computer-use-{unit_token}.scope"
+            self.profile_dir = Path(tempfile.mkdtemp(prefix="codex-computer-use-profile-"))
+            host_runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+            self.runtime_dir = host_runtime / "codex-computer-use" / unit_token
+            self.runtime_dir.mkdir(parents=True, mode=0o700)
+            self.runtime_dir.chmod(0o700)
+            command = [
+                sys.executable,
+                str(ISOLATED_SESSION_SCRIPT),
+                "--session-id",
+                self.session_id,
+                "--profile-dir",
+                str(self.profile_dir),
+                "--runtime-dir",
+                str(self.runtime_dir),
+                "--screen-width",
+                str(screen_width),
+                "--screen-height",
+                str(screen_height),
+                "--timeout-ms",
+                str(timeout_ms),
+            ]
+            self.process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            self.stderr_thread = threading.Thread(
+                target=self._drain_stderr,
+                args=(self.process.stderr,),
+                name="computer-use-isolated-stderr",
+                daemon=True,
+            )
+            self.stderr_thread.start()
+        try:
+            message = self._read_message(timeout_ms / 1000.0)
+            if message.get("event") != "state" or message.get("state") != "Ready":
+                raise RuntimeError(message.get("error") or f"isolated helper returned invalid startup state: {message}")
+            self._attach_process_tree_to_scope(min(5.0, timeout_ms / 1000.0))
+            with self.state_lock:
+                self.state = "Ready"
+            return {"state": "Ready", "unit": self.unit_name, **message["result"]}
+        except Exception as error:
+            with self.state_lock:
+                self.state = "Failed"
+                self.state_error = str(error)
+            self._terminate_unit(force=True)
+            self._cleanup_paths()
+            raise
+
+    def call(self, method, params):
+        timeout_ms = int(params.get("timeout_ms", 120000))
+        self._require_session(params.get("session_id"), "Ready")
+        with self.operation_lock:
+            self._require_session(params.get("session_id"), "Ready")
+            request_id = self.next_request_id
+            self.next_request_id += 1
+            request = {"id": request_id, "method": method, "params": params}
+            try:
+                self.process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                self.process.stdin.flush()
+                message = self._read_message(timeout_ms / 1000.0)
+            except Exception as error:
+                with self.state_lock:
+                    if self.state == "Stopped":
+                        raise RuntimeError("isolated session stopped while the operation was in progress") from error
+                    self.state = "Failed"
+                    self.state_error = str(error)
+                self._terminate_unit(force=True)
+                raise
+            if message.get("id") != request_id:
+                raise RuntimeError(f"isolated helper response id mismatch: expected {request_id}, got {message.get('id')}")
+            if not message.get("ok"):
+                raise RuntimeError(message.get("error") or f"isolated operation failed: {method}")
+            return message.get("result")
+
+    def stop(self, params):
+        force = bool(params.get("force", False))
+        allow_stopped = bool(params.get("allow_stopped", False))
+        requested_id = params.get("session_id")
+        with self.state_lock:
+            if self.state == "Stopped":
+                if allow_stopped:
+                    return {"state": "Stopped", "session_id": None}
+                raise RuntimeError("no isolated session is running")
+            if requested_id and requested_id != self.session_id:
+                raise ValueError(f"unknown isolated session id: {requested_id}")
+            stopped_id = self.session_id
+            self.state = "Stopping"
+        self._terminate_unit(force=force)
+        self._cleanup_paths()
+        with self.state_lock:
+            self.state = "Stopped"
+            self.session_id = None
+            self.unit_name = None
+            self.process = None
+            self.state_error = None
+            self.stderr_thread = None
+        return {"state": "Stopped", "session_id": stopped_id, "forced": force}
+
+    def status(self, params):
+        requested_id = params.get("session_id")
+        if requested_id and self.session_id and requested_id != self.session_id:
+            raise ValueError(f"unknown isolated session id: {requested_id}")
+        with self.state_lock:
+            process_code = self.process.poll() if self.process is not None else None
+            if self.state in ("Starting", "Ready") and process_code is not None:
+                self.state = "Failed"
+                self.state_error = self._stderr_tail() or f"isolated helper exited with code {process_code}"
+            return {
+                "state": self.state,
+                "session_id": self.session_id,
+                "unit": self.unit_name,
+                "error": self.state_error,
+                "isolation": "gui-profile" if self.session_id else None,
+            }
+
+    def _require_session(self, session_id, required_state):
+        with self.state_lock:
+            if not session_id or session_id != self.session_id:
+                raise ValueError(f"unknown isolated session id: {session_id!r}")
+            if self.state != required_state:
+                raise RuntimeError(f"isolated session {session_id} is {self.state}, expected {required_state}")
+
+    def _read_message(self, timeout_seconds):
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError("isolated helper process is unavailable")
+        readable, _, _ = select.select([self.process.stdout.fileno()], [], [], max(0.001, timeout_seconds))
+        if not readable:
+            detail = self._stderr_tail()
+            suffix = f": {detail}" if detail else ""
+            raise TimeoutError(f"timed out waiting for isolated Computer Use helper{suffix}")
+        line = self.process.stdout.readline()
+        if not line:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                self.process.wait(timeout=0.5)
+            raise RuntimeError(self._stderr_tail() or "isolated Computer Use helper closed its output")
+        return json.loads(line)
+
+    def _owned_process_ids(self):
+        root_pid = self.process.pid
+        selected = {root_pid}
+        process_statuses = {}
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            try:
+                status = (entry / "status").read_text()
+                parent_id = int(next(line for line in status.splitlines() if line.startswith("PPid:")).split()[1])
+                state = next(line for line in status.splitlines() if line.startswith("State:")).split()[1]
+                process_statuses[pid] = (parent_id, state)
+            except (FileNotFoundError, PermissionError, StopIteration, ValueError):
+                continue
+
+        changed = True
+        while changed:
+            changed = False
+            for pid, (parent_id, state) in process_statuses.items():
+                if state not in ("X", "Z") and parent_id in selected and pid not in selected:
+                    selected.add(pid)
+                    changed = True
+        return sorted(pid for pid in selected if process_statuses.get(pid, (None, "X"))[1] not in ("X", "Z"))
+
+    def _freeze_process_tree(self, timeout_seconds):
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            process_ids = self._owned_process_ids()
+            for pid in process_ids:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(pid, signal.SIGSTOP)
+
+            states = {}
+            for pid in process_ids:
+                try:
+                    status = Path(f"/proc/{pid}/status").read_text()
+                    states[pid] = next(line for line in status.splitlines() if line.startswith("State:")).split()[1]
+                except (FileNotFoundError, PermissionError, StopIteration):
+                    continue
+            live_process_ids = sorted(pid for pid, state in states.items() if state not in ("X", "Z"))
+            if live_process_ids and all(states[pid] in ("T", "t") for pid in live_process_ids):
+                confirmed_process_ids = self._owned_process_ids()
+                if set(confirmed_process_ids).issubset(live_process_ids):
+                    return live_process_ids
+            time.sleep(0.01)
+        raise TimeoutError("isolated process tree did not freeze for cgroup attachment")
+
+    def _attach_process_tree_to_scope(self, timeout_seconds):
+        process_ids = self._freeze_process_tree(timeout_seconds)
+        scope_created = False
+        command = [
+            "busctl",
+            "--user",
+            "call",
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager",
+            "StartTransientUnit",
+            "ssa(sv)a(sa(sv))",
+            self.unit_name,
+            "fail",
+            "2",
+            "PIDs",
+            "au",
+            str(len(process_ids)),
+            *[str(pid) for pid in process_ids],
+            "TimeoutStopUSec",
+            "t",
+            "3000000",
+            "0",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_seconds,
+            )
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(f"could not create isolated Computer Use scope: {detail}")
+            scope_created = True
+
+            deadline = time.monotonic() + timeout_seconds
+            while time.monotonic() < deadline:
+                unattached = []
+                for pid in process_ids:
+                    try:
+                        cgroup = Path(f"/proc/{pid}/cgroup").read_text()
+                    except FileNotFoundError:
+                        continue
+                    if f"/{self.unit_name}" not in cgroup:
+                        unattached.append(pid)
+                if not unattached:
+                    break
+                time.sleep(0.01)
+            else:
+                raise TimeoutError(f"isolated process tree was not attached to {self.unit_name}: {unattached}")
+
+            resumed = subprocess.run(
+                ["systemctl", "--user", "kill", "--kill-whom=all", "--signal=CONT", self.unit_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout_seconds,
+            )
+            if resumed.returncode != 0:
+                raise RuntimeError(f"could not resume isolated Computer Use scope: {resumed.stderr.strip()}")
+        except Exception:
+            if scope_created:
+                subprocess.run(
+                    ["systemctl", "--user", "kill", "--kill-whom=all", "--signal=KILL", self.unit_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            else:
+                for pid in process_ids:
+                    with contextlib.suppress(ProcessLookupError, PermissionError):
+                        os.kill(pid, signal.SIGKILL)
+            raise
+
+    def _terminate_unit(self, force):
+        if not self.unit_name:
+            return
+        if force:
+            command = ["systemctl", "--user", "kill", "--kill-whom=all", "--signal=KILL", self.unit_name]
+        else:
+            command = ["systemctl", "--user", "stop", self.unit_name]
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+        if result.returncode != 0 and self.process is not None and self.process.poll() is None:
+            process_ids = self._owned_process_ids()
+            requested_signal = signal.SIGKILL if force else signal.SIGTERM
+            for pid in process_ids:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(pid, requested_signal)
+        if self.process is not None:
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                for pid in self._owned_process_ids():
+                    with contextlib.suppress(ProcessLookupError, PermissionError):
+                        os.kill(pid, signal.SIGKILL)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    self.process.wait(timeout=2)
+        if self.stderr_thread is not None:
+            self.stderr_thread.join(timeout=1)
+        subprocess.run(
+            ["systemctl", "--user", "reset-failed", self.unit_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
         )
-    return "Foreground input uses the pre-authorized KDE RemoteDesktop portal."
+
+    def _drain_stderr(self, stream):
+        for line in stream:
+            with self.stderr_lock:
+                self.stderr_text = (self.stderr_text + line)[-4000:]
+
+    def _stderr_tail(self):
+        with self.stderr_lock:
+            return self.stderr_text.strip()
+
+    def _cleanup_paths(self):
+        if self.runtime_dir is not None:
+            shutil.rmtree(self.runtime_dir, ignore_errors=True)
+            parent = self.runtime_dir.parent
+            with contextlib.suppress(OSError):
+                parent.rmdir()
+        if self.profile_dir is not None:
+            shutil.rmtree(self.profile_dir, ignore_errors=True)
+        self.runtime_dir = None
+        self.profile_dir = None
 
 
-class DirectBackendUnavailable(RuntimeError):
-    pass
+class AccessibilityLookStore:
+    def __init__(self, limit=32):
+        self.limit = limit
+        self.looks = OrderedDict()
+        self.lock = threading.RLock()
+
+    def begin(self, root_identity):
+        look_id = "look-" + uuid.uuid4().hex
+        with self.lock:
+            self.looks[look_id] = {"root_identity": root_identity, "bindings": OrderedDict()}
+            self.looks.move_to_end(look_id)
+            while len(self.looks) > self.limit:
+                self.looks.popitem(last=False)
+        return look_id
+
+    def bind(self, look_id, kind, target, capabilities=None):
+        with self.lock:
+            look = self.looks.get(look_id)
+            if look is None:
+                raise ValueError(f"stale accessibility look: {look_id}")
+            wire_ref = f"wire-{len(look['bindings']) + 1}"
+            look["bindings"][wire_ref] = {
+                "kind": kind,
+                "target": target,
+                "capabilities": list(capabilities or []),
+            }
+            return wire_ref
+
+    def require(self, look_id, wire_ref, root_identity=None):
+        with self.lock:
+            look = self.looks.get(look_id)
+            if look is None:
+                raise ValueError(f"stale accessibility look: {look_id}; call observe_ui again")
+            if root_identity is not None and look["root_identity"] != root_identity:
+                raise ValueError("accessibility look is bound to a different UI root")
+            binding = look["bindings"].get(wire_ref)
+            if binding is None:
+                raise ValueError(f"wire ref {wire_ref!r} is not bound to look {look_id}")
+            return binding
+
+    def bindings(self, look_id):
+        with self.lock:
+            look = self.looks.get(look_id)
+            if look is None:
+                raise ValueError(f"stale accessibility look: {look_id}; call observe_ui again")
+            return list(look["bindings"].values())
+
+
+class EventJournal:
+    EVENT_NAMES = (
+        "object:text-changed",
+        "object:children-changed",
+        "object:state-changed",
+        "window:create",
+        "window:destroy",
+        "window:activate",
+        "window:deactivate",
+        "window:move",
+        "window:resize",
+    )
+
+    def __init__(self, limit=512):
+        self.limit = limit
+        self.events = deque(maxlen=limit)
+        self.sequence = 0
+        self.resource_sequences = {}
+        self.condition = threading.Condition()
+        self.started = False
+        self.start_lock = threading.Lock()
+
+    def ensure_started(self):
+        with self.start_lock:
+            if self.started:
+                return
+            import pyatspi
+
+            for event_name in self.EVENT_NAMES:
+                pyatspi.Registry.registerEventListener(self._on_atspi_event, event_name)
+            thread = threading.Thread(
+                target=pyatspi.Registry.start,
+                kwargs={"asynchronous": False, "gil": True},
+                daemon=True,
+                name="computer-use-atspi-events",
+            )
+            thread.start()
+            self.started = True
+
+    def _on_atspi_event(self, event):
+        source = getattr(event, "source", None)
+        pid = accessible_process_id(source) if source is not None else 0
+        self.record(
+            str(getattr(event, "type", "at-spi")),
+            {
+                "pid": pid,
+                "name": safe_attr(source, "name") if source is not None else "",
+            },
+            f"desktop-pid:{pid}" if pid > 0 else None,
+        )
+
+    def record(self, event_type, details=None, resource_key=None):
+        with self.condition:
+            self.sequence += 1
+            if resource_key is not None:
+                self.resource_sequences[resource_key] = self.sequence
+            self.events.append(
+                {
+                    "sequence": self.sequence,
+                    "type": event_type,
+                    "details": details or {},
+                    "resource_key": resource_key,
+                    "time": time.monotonic(),
+                }
+            )
+            self.condition.notify_all()
+            return self.sequence
+
+    def snapshot(self, resource_key):
+        with self.condition:
+            return self.resource_sequences.get(resource_key, 0)
+
+    def wait_after(self, resource_key, sequence, timeout_seconds):
+        with self.condition:
+            deadline = time.monotonic() + max(0.0, timeout_seconds)
+            while self.resource_sequences.get(resource_key, 0) <= sequence:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.condition.wait(timeout=remaining)
+            return self.resource_sequences.get(resource_key, sequence)
 
 
 class Broker:
-    def __init__(self):
+    def __init__(self, pointer_visuals=True):
         self.portal = None
-        self.desktop_snapshots = {}
-        self.pointer_position = None
-        self.round_id = None
-        self.round_active = False
-        self.glow_active = False
-        self.glow = GlowOverlay()
+        self.glow = CursorGlowTheme() if pointer_visuals else None
+        self.foreground_lock = threading.RLock()
+        self.isolated = IsolatedSessionSupervisor()
+        self.looks = AccessibilityLookStore()
+        self.events = EventJournal()
+        self.physical_executor = None
+        self.pointer_restorer = None
 
     def handle(self, method, params):
-        if method == "computer_begin_round":
-            return self.begin_round(params)
-        if method == "computer_end_round":
-            return self.end_round(params)
-        if method == "computer_observe":
-            return self.observe(params)
-        if method == "computer_list_desktops":
-            return self.list_desktops(params)
-        if method == "computer_list_apps":
-            return self.list_apps(params)
-        if method == "computer_list_tray_items":
-            return self.list_tray_items(params)
-        if method == "computer_list_windows":
-            return self.list_windows(params)
-        if method == "computer_open_app":
-            return self.open_app(params)
-        if method == "computer_activate_tray_item":
-            return self.activate_tray_item(params)
-        if method == "computer_activate_window":
-            return self.activate_window(params)
-        if method == "computer_click":
-            return self.click(params)
-        if method == "computer_drag":
-            return self.drag(params)
-        if method == "computer_scroll":
-            return self.scroll(params)
-        if method == "computer_key":
-            return self.key(params)
-        if method == "computer_type":
-            return self.type_text(params)
-        if method == "computer_release_desktops":
-            return self.release_desktops(params)
-        if method == "computer_wait":
-            return self.wait(params)
-        if method == "computer_get_accessibility_tree":
-            return self.accessibility_tree(params)
+        if method == "isolated_start":
+            return self.isolated.start(params)
+        if method == "isolated_stop":
+            return self.isolated.stop(params)
+        if method == "isolated_status":
+            return self.isolated.status(params)
+        if params.get("session_id"):
+            return self.isolated.call(method, params)
+        handlers = {
+            "find_roots": self.find_roots,
+            "observe_root": self.observe_root,
+            "read_text": self.read_text_v2,
+            "act_transaction": self.act_transaction,
+            "wait_for": self.wait_for_v2,
+        }
+        handler = handlers.get(method)
+        if handler is not None:
+            return handler(params)
         raise ValueError(f"unknown method: {method}")
+
+    def find_roots(self, params):
+        kind = str(params.get("kind") or "window")
+        if kind not in ("window", "application", "tray_item", "all"):
+            raise ValueError(f"unknown root kind: {kind}")
+        query = str(params.get("query") or "").strip().lower()
+        limit = max(1, min(200, int(params.get("limit", 50))))
+        roots = []
+        if kind in ("window", "all"):
+            windows = self.list_windows(
+                {
+                    "app": params.get("query"),
+                    "include_special": params.get("include_special", False),
+                    "include_minimized": params.get("include_minimized", True),
+                    "detail": "full",
+                    "limit": limit,
+                }
+            ).get("windows", [])
+            for window in windows:
+                pid = accessibility_target_pid(window)
+                roots.append(
+                    {
+                        "kind": "window",
+                        "backend_ref": str(window.get("id") or ""),
+                        "resource_key": f"desktop-pid:{pid}",
+                        "title": window_title(window),
+                        "app": str(window.get("resourceClass") or ""),
+                        "pid": pid,
+                        "active": bool(window.get("active")),
+                        "minimized": bool(window.get("minimized")),
+                        "frame_geometry": window.get("frame_geometry"),
+                        "buffer_geometry": window.get("buffer_geometry"),
+                    }
+                )
+        if kind in ("application", "all"):
+            apps = self.list_apps(
+                {
+                    "query": params.get("query"),
+                    "include_hidden": params.get("include_hidden", False),
+                    "limit": limit,
+                }
+            ).get("apps", [])
+            for app in apps:
+                desktop_id = str(app.get("desktop_id") or "")
+                roots.append(
+                    {
+                        "kind": "application",
+                        "backend_ref": desktop_id,
+                        "resource_key": f"application:{desktop_id}",
+                        **app,
+                    }
+                )
+        if kind in ("tray_item", "all"):
+            tray_items = self.list_tray_items({"query": params.get("query"), "limit": limit}).get("items", [])
+            for item in tray_items:
+                if query and not tray_item_matches(item, query):
+                    continue
+                item_ref = str(item.get("ref") or "")
+                owner_pid = int(item.get("owner_pid") or 0)
+                roots.append(
+                    {
+                        "kind": "tray_item",
+                        "backend_ref": item_ref,
+                        "resource_key": f"desktop-pid:{owner_pid}" if owner_pid > 0 else f"tray:{item_ref}",
+                        **item,
+                    }
+                )
+        return {
+            "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
+            "roots": roots[:limit],
+            "truncated": len(roots) > limit,
+        }
+
+    def observe_root(self, params):
+        return self._observe_root(
+            params["root"],
+            bool(params.get("include_image", True)),
+            int(params.get("max_depth") or 8),
+            int(params.get("max_nodes") or 500),
+            int(params.get("timeout_ms") or 120000),
+            allow_missing=False,
+        )
+
+    def _observe_root(self, root, include_image, max_depth, max_nodes, timeout_ms, allow_missing):
+        kind = str(root.get("kind") or "")
+        if kind == "window":
+            window = resolve_exact_root_window(root, self.list_windows, allow_missing=allow_missing)
+            if window is None:
+                return missing_window_observation(root, self.looks)
+            root_identity = ui_root_identity(root)
+            tree = read_accessibility_tree(
+                {
+                    "target_window": window,
+                    "max_depth": max_depth,
+                    "max_nodes": max_nodes,
+                },
+                look_store=self.looks,
+                root_identity=root_identity,
+            )
+            png = capture_kwin_screenshot_png(
+                None,
+                max(0.1, timeout_ms / 1000.0),
+                window_id=window.get("id"),
+            )
+            transform = map_accessibility_to_window_image(tree, window, png)
+            backend_root = {
+                **root,
+                "pid": accessibility_target_pid(window),
+                "title": window_title(window),
+                "frame_geometry": window.get("frame_geometry"),
+                "buffer_geometry": window.get("buffer_geometry"),
+                "backend_coordinate_transform": transform,
+            }
+            observation = {
+                "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
+                "look_id": tree["look_id"],
+                "captured_at": time.time(),
+                "root": public_ui_root(backend_root),
+                "backend_root": backend_root,
+                "window": public_window(window, "summary"),
+                "coordinate_space": {
+                    "name": "window-image-px",
+                    "width": png["width"],
+                    "height": png["height"],
+                    "window_id": str(window.get("id") or ""),
+                    "accessibility_source_space": transform["accessibility_source_space"],
+                    "scale_x": transform["scale_x"],
+                    "scale_y": transform["scale_y"],
+                },
+                "outline": {
+                    "nodes": tree["nodes"],
+                    "truncated": tree["truncated"],
+                },
+            }
+            if include_image:
+                observation["image"] = screenshot_payload(png)
+            return observation
+        if kind == "application":
+            try:
+                entry = resolve_exact_application_root(root)
+            except ValueError:
+                if allow_missing:
+                    return missing_window_observation(root, self.looks)
+                raise
+            return synthetic_root_observation(root, "application", entry, self.looks)
+        if kind == "tray_item":
+            try:
+                item = resolve_exact_tray_root(root)
+            except ValueError:
+                if allow_missing:
+                    return missing_window_observation(root, self.looks)
+                raise
+            return synthetic_root_observation(root, "tray_item", item, self.looks)
+        raise ValueError(f"unknown UI root kind: {kind}")
+
+    def _probe_condition_observation(self, root):
+        if root.get("kind") != "window":
+            return self._observe_root(root, False, 8, 500, 5000, allow_missing=True)
+        window = resolve_exact_root_window(root, self.list_windows, allow_missing=True)
+        if window is None:
+            return missing_window_observation(root, self.looks)
+        tree = read_accessibility_tree(
+            {"target_window": window, "max_depth": 8, "max_nodes": 500},
+            look_store=self.looks,
+            root_identity=ui_root_identity(root),
+        )
+        return {"outline": {"nodes": tree["nodes"], "truncated": tree["truncated"]}}
+
+    def read_text_v2(self, params):
+        binding = self.looks.require(
+            params["look_id"],
+            params["wire_ref"],
+            ui_root_identity(params["root"]),
+        )
+        text, value = read_binding_text(binding, int(params.get("start", 0)), int(params.get("end", -1)))
+        return {
+            "lookId": params["look_id"],
+            "text": text,
+            "value": value,
+            "selection": read_binding_selection(binding),
+        }
+
+    def act_transaction(self, params):
+        root = params["root"]
+        look_id = params["look_id"]
+        actions = params.get("actions") or []
+        if not actions:
+            raise ValueError("act_transaction requires at least one action")
+        policy = str(params.get("policy") or "auto")
+        if policy not in ("semantic_only", "auto", "foreground"):
+            raise ValueError(f"unknown action policy: {policy}")
+        timeout_ms = int(params.get("timeout_ms") or 120000)
+        evidence = []
+        lease = None
+        final_observation = None
+        with self.foreground_lock:
+            try:
+                if root.get("kind") == "window":
+                    validate_root_geometry(root, self.list_windows)
+                for action in actions:
+                    action_evidence, lease = self._execute_v2_action(root, look_id, action, policy, lease)
+                    evidence.append(action_evidence)
+                expect = params.get("expect")
+                expectation = None
+                if expect:
+                    expectation = self._wait_for_condition(root, look_id, expect, timeout_ms)
+                    evidence.append(expectation)
+                final_observation = self._observe_root(
+                    root,
+                    bool(params.get("include_image", True)),
+                    8,
+                    500,
+                    timeout_ms,
+                    allow_missing=True,
+                )
+            finally:
+                if lease is not None:
+                    evidence.append(lease.release())
+        return {
+            "outcome": transaction_outcome(evidence, bool(params.get("expect"))),
+            "evidence": evidence,
+            "observation": final_observation,
+        }
+
+    def _execute_v2_action(self, root, look_id, action, policy, lease):
+        op = str(action.get("op") or "")
+        binding = None
+        if action.get("wire_ref"):
+            binding = self.looks.require(look_id, action["wire_ref"], ui_root_identity(root))
+        if op in ("press", "set_text") and policy != "foreground":
+            semantic = self._execute_semantic_action(root, binding, op, action)
+            if semantic["outcome"] != "didnt" or policy == "semantic_only":
+                return semantic, lease
+            if not semantic.get("side_effect_free", False):
+                return semantic, lease
+        if policy == "semantic_only":
+            return {
+                "op": op,
+                "backend": "semantic",
+                "outcome": "didnt",
+                "reason": "operation has no semantic implementation",
+                "side_effect_free": True,
+            }, lease
+        if root.get("kind") != "window":
+            raise ValueError(f"foreground delivery requires a window root, received {root.get('kind')}")
+        if lease is None:
+            lease = ForegroundLease(self, root)
+            lease.acquire()
+        else:
+            lease.validate()
+        if op in ("press", "click", "set_text", "scroll", "drag"):
+            lease.ensure_pointer_visual()
+        executor = self.physical_executor or self._execute_foreground_action
+        return executor(root, binding, op, action), lease
+
+    def _execute_semantic_action(self, root, binding, op, action):
+        if binding is None:
+            return {
+                "op": op,
+                "backend": "semantic",
+                "outcome": "didnt",
+                "reason": "semantic action requires an element ref",
+                "side_effect_free": True,
+            }
+        if binding["kind"] == "application":
+            if op != "press":
+                return {"op": op, "backend": "desktop-entry", "outcome": "didnt", "side_effect_free": True}
+            process = launch_desktop_entry(binding["target"])
+            self.events.record("application:launched", {"pid": process.pid}, root.get("resource_key"))
+            return {"op": op, "backend": "desktop-entry", "outcome": "unknown", "delivered": True, "pid": process.pid}
+        if binding["kind"] == "tray_item":
+            if op != "press":
+                return {"op": op, "backend": "status-notifier", "outcome": "didnt", "side_effect_free": True}
+            call_status_notifier_item_action(binding["target"], "activate", 0, 0)
+            self.events.record("tray:activated", {"ref": binding["target"].get("ref")}, root.get("resource_key"))
+            return {"op": op, "backend": "status-notifier", "outcome": "unknown", "delivered": True}
+        accessible = binding["target"]
+        if op == "press":
+            try:
+                interface = accessible.queryAction()
+            except Exception:
+                return {
+                    "op": op,
+                    "backend": "at-spi-action",
+                    "outcome": "didnt",
+                    "reason": "Action interface unavailable",
+                    "side_effect_free": True,
+                }
+            action_index = preferred_accessible_action(interface)
+            delivered = bool(interface.doAction(action_index))
+            return {
+                "op": op,
+                "backend": "at-spi-action",
+                "outcome": "unknown" if delivered else "didnt",
+                "delivered": delivered,
+                "action_index": action_index,
+                "side_effect_free": not delivered,
+            }
+        if op == "set_text":
+            text = action.get("text")
+            if not isinstance(text, str):
+                raise ValueError("set_text requires text")
+            before = accessible_text(accessible)
+            try:
+                editable = accessible.queryEditableText()
+            except Exception:
+                return {
+                    "op": op,
+                    "backend": "at-spi-editable-text",
+                    "outcome": "didnt",
+                    "reason": "EditableText interface unavailable",
+                    "side_effect_free": True,
+                }
+            delivered = bool(editable.setTextContents(text))
+            after = accessible_text(accessible)
+            verified = after == text
+            return {
+                "op": op,
+                "backend": "at-spi-editable-text",
+                "outcome": "worked" if verified else "didnt",
+                "delivered": delivered,
+                "verified": verified,
+                "side_effect_free": not delivered and after == before,
+            }
+        return {"op": op, "backend": "semantic", "outcome": "didnt", "side_effect_free": True}
+
+    def _execute_foreground_action(self, root, binding, op, action):
+        if op in ("press", "click"):
+            x, y = foreground_action_point(root, binding, action)
+            delivery = self.click_foreground({"x": x, "y": y, "button": action.get("button", "left"), "count": action.get("count", 1)})
+        elif op == "drag":
+            x, y = foreground_action_point(root, binding, action)
+            to_x, to_y = map_window_image_point(root, action.get("to_x"), action.get("to_y"))
+            delivery = self.drag_foreground({"x": x, "y": y, "to_x": to_x, "to_y": to_y, "button": action.get("button", "left")})
+        elif op == "scroll":
+            delivery_params = {"dx": action.get("dx", 0), "dy": action.get("dy", 0), "steps": 1}
+            if binding is not None or (action.get("x") is not None and action.get("y") is not None):
+                delivery_params["x"], delivery_params["y"] = foreground_action_point(root, binding, action)
+            delivery = self.scroll_foreground(delivery_params)
+        elif op == "key":
+            if not action.get("key"):
+                raise ValueError("key action requires key")
+            delivery = self.key_foreground({"key": action["key"], "modifiers": action.get("modifiers") or [], "repeat": 1})
+        elif op == "type_text":
+            if not isinstance(action.get("text"), str):
+                raise ValueError("type_text requires text")
+            delivery = self.type_text_foreground({"text": action["text"]})
+        elif op == "set_text":
+            if binding is None:
+                raise ValueError("foreground set_text requires an element ref")
+            x, y = foreground_action_point(root, binding, action)
+            self.click_foreground({"x": x, "y": y, "button": "left", "count": 1})
+            self.key_foreground({"key": "a", "modifiers": ["ctrl"], "repeat": 1})
+            delivery = self.type_text_foreground({"text": action.get("text", "")})
+        else:
+            raise ValueError(f"unknown UI action: {op}")
+        return {"op": op, "backend": delivery.get("backend", "foreground"), "outcome": "unknown", "delivered": True}
+
+    def _wait_for_condition(self, root, look_id, expect, timeout_ms):
+        self.events.ensure_started()
+        deadline = time.monotonic() + max(0, int(expect.get("timeout_ms", timeout_ms))) / 1000.0
+        resource_key = str(root.get("resource_key") or ui_root_identity(root))
+        sequence = self.events.snapshot(resource_key)
+        while True:
+            if expect.get("wire_ref"):
+                matched, observed = evaluate_expectation(self.looks, look_id, expect)
+            else:
+                probe = self._probe_condition_observation(root)
+                matched, observed = evaluate_observation_expectation(probe, expect)
+            if matched:
+                return {
+                    "backend": "event-journal+authoritative-read",
+                    "outcome": "worked",
+                    "matched": True,
+                    "observed": observed,
+                }
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {
+                    "backend": "event-journal+authoritative-read",
+                    "outcome": "didnt",
+                    "matched": False,
+                    "observed": observed,
+                }
+            sequence = self.events.wait_after(resource_key, sequence, min(remaining, 0.25))
+
+    def wait_for_v2(self, params):
+        evidence = self._wait_for_condition(
+            params["root"],
+            params["look_id"],
+            params["expect"],
+            int(params.get("timeout_ms") or 5000),
+        )
+        observation = self._observe_root(
+            params["root"],
+            bool(params.get("include_image", True)),
+            8,
+            500,
+            int(params.get("timeout_ms") or 5000),
+            allow_missing=True,
+        )
+        return {"outcome": evidence["outcome"], "evidence": [evidence], "observation": observation}
 
     def ensure_portal(self):
         if self.portal is None:
             self.portal = PortalSession()
         return self.portal
-
-    def observe(self, params):
-        include_image = params.get("include_image", True)
-        include_windows = params.get("include_windows", True)
-        timeout_ms = int(params.get("timeout_ms", 180000))
-        backend = requested_backend(params)
-        try:
-            if backend in ("direct", "auto"):
-                result = self.observe_direct(params, include_image, timeout_ms)
-            else:
-                result = self.observe_portal(params, include_image, timeout_ms)
-        except DirectBackendUnavailable as error:
-            if backend == "auto" and params.get("allow_portal_fallback", False):
-                result = self.observe_portal(params, include_image, timeout_ms)
-                result["direct_error"] = str(error)
-            else:
-                raise
-        if include_windows:
-            result["windows"] = self.list_windows({}).get("windows", [])
-        return result
-
-    def observe_direct(self, params, include_image, timeout_ms):
-        result = {
-            "backend": "kwin-screenshot2",
-            "desktop": desktop_summary(),
-            "foreground_only": True,
-            "setup_hint": direct_setup_hint("observe"),
-        }
-        if include_image:
-            try:
-                png = capture_kwin_screenshot_png(params.get("crop"), timeout_ms / 1000.0)
-            except Exception as error:
-                raise DirectBackendUnavailable(f"{error}; {direct_setup_hint('observe')}") from error
-            result["image"] = {
-                "mime_type": "image/png",
-                "data_base64": base64.b64encode(png["bytes"]).decode("ascii"),
-                "width": png["width"],
-                "height": png["height"],
-                "cropped": png["cropped"],
-            }
-            result["stream"] = {
-                "id": "kwin-workspace",
-                "properties": {
-                    "position": [0, 0],
-                    "size": [png["width"], png["height"]],
-                    "source_type": "workspace",
-                    "scale": png.get("scale"),
-                    "coordinate_space": "native-pixels",
-                },
-            }
-        return result
-
-    def observe_portal(self, params, include_image, timeout_ms):
-        portal = self.ensure_portal()
-        portal.ensure_remote(timeout_ms / 1000.0)
-        result = {
-            "backend": "xdg-desktop-portal",
-            "desktop": desktop_summary(),
-            "stream": portal.stream_metadata(),
-            "foreground_only": True,
-        }
-        if include_image:
-            png = portal.capture_png(params.get("crop"), timeout_ms / 1000.0)
-            result["image"] = {
-                "mime_type": "image/png",
-                "data_base64": base64.b64encode(png["bytes"]).decode("ascii"),
-                "width": png["width"],
-                "height": png["height"],
-                "cropped": png["cropped"],
-            }
-        return result
 
     def list_windows(self, params):
         data = run_kwin_script("list", {})
@@ -406,23 +1202,12 @@ class Broker:
             "desktop": desktop_summary(),
             "virtual_desktops": data.get("virtual_desktops", []),
             "current_virtual_desktop": data.get("current_virtual_desktop"),
-            "desktop_one": data.get("desktop_one"),
             "detail": detail,
             "matched_count": len(filtered),
             "limit": limit,
             "truncated": len(filtered) > limit,
             "windows": [public_window(window, detail) for window in visible],
             "active_window_id": data.get("active_window_id"),
-        }
-
-    def list_desktops(self, params):
-        data = run_kwin_script("list_desktops", {})
-        return {
-            "backend": "kwin-scripting",
-            "desktop": desktop_summary(),
-            "virtual_desktops": data.get("virtual_desktops", []),
-            "current_virtual_desktop": data.get("current_virtual_desktop"),
-            "desktop_one": data.get("desktop_one"),
         }
 
     def list_apps(self, params):
@@ -474,154 +1259,6 @@ class Broker:
             result["errors"] = data["errors"]
         return result
 
-    def open_app(self, params):
-        desktop_id = params.get("desktop_id")
-        query = params.get("query")
-        if not desktop_id and not query:
-            raise ValueError("computer_open_app requires query or desktop_id")
-
-        entries = find_desktop_entries()
-        entry = select_desktop_entry(entries, desktop_id, query)
-        if entry is None:
-            return {
-                "launched": False,
-                "error": f"no matching desktop entry for {desktop_id or query!r}",
-                "candidates": entries[:20],
-            }
-
-        command = expand_exec(entry.get("exec", ""), params.get("args") or [])
-        if not command:
-            raise ValueError(f"desktop entry has no executable Exec line: {entry.get('path')}")
-
-        app_matches = desktop_entry_window_queries(entry)
-        if params.get("reuse_existing", False):
-            windows = self.list_windows_for_entry(app_matches)
-            target_window = select_existing_window(windows)
-            if target_window:
-                activated = None
-                if params.get("activate", True):
-                    activated = self.activate_window({"window_id": target_window.get("id"), "wait_ms": 300}).get("window")
-                return {
-                    "launched": False,
-                    "reused_existing": True,
-                    "entry": entry,
-                    "windows": windows,
-                    "target_window": target_window,
-                    "activated": activated,
-                }
-            if params.get("activate", True):
-                tray_result = self.activate_tray_item({"query": entry.get("name") or desktop_id or query, "wait_ms": 500})
-                if tray_result.get("activated"):
-                    return {
-                        "launched": False,
-                        "reused_existing": True,
-                        "reuse_source": "tray",
-                        "entry": entry,
-                        "windows": windows,
-                        "target_window": None,
-                        "activated": tray_result.get("window"),
-                        "tray_item": tray_result.get("item"),
-                    }
-
-        before_window_ids = {window.get("id") for window in self.list_windows({}).get("windows", []) if window.get("id")}
-        process = subprocess.Popen(
-            command,
-            cwd=os.path.expanduser("~"),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        wait_ms = int(params.get("wait_ms", 1000))
-        if wait_ms > 0:
-            time.sleep(wait_ms / 1000.0)
-
-        windows = self.list_windows_for_entry(app_matches)
-        target_window = select_launch_window(windows, before_window_ids, process.pid)
-        activated = None
-        if params.get("activate", True) and target_window:
-            activated = self.activate_window({"window_id": target_window.get("id"), "wait_ms": 300}).get("window")
-
-        return {
-            "launched": True,
-            "reused_existing": False,
-            "pid": process.pid,
-            "entry": entry,
-            "command": command,
-            "windows": windows,
-            "target_window": target_window,
-            "activated": activated,
-        }
-
-    def list_windows_for_entry(self, queries):
-        by_id = {}
-        for query in queries:
-            for window in self.list_windows({"app": query}).get("windows", []):
-                window_id = window.get("id")
-                if window_id:
-                    by_id.setdefault(window_id, window)
-                else:
-                    by_id.setdefault(f"index:{len(by_id)}", window)
-        return list(by_id.values())
-
-    def activate_tray_item(self, params):
-        self.ensure_round(params)
-        data = read_status_notifier_items()
-        item = select_tray_item(data["items"], params)
-        if item is None:
-            return {
-                "activated": False,
-                "error": "no matching KDE StatusNotifierItem",
-                "candidates": data["items"][:20],
-                "errors": data["errors"],
-            }
-
-        action = str(params.get("action") or "activate").strip().lower()
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
-        before = self.list_windows({})
-        call_status_notifier_item_action(item, action, x, y)
-        wait_ms = int(params.get("wait_ms", 500))
-        if wait_ms > 0:
-            time.sleep(wait_ms / 1000.0)
-
-        moved_window = None
-        after = self.list_windows({})
-        active_window_id = after.get("active_window_id")
-        if action != "context_menu" and active_window_id and active_window_id != before.get("active_window_id"):
-            data = run_kwin_script("prepare_active_for_operation", {})
-            self.remember_desktop_snapshot(data)
-            moved_window = data.get("window")
-
-        return {
-            "backend": "kde-status-notifier",
-            "activated": True,
-            "action": action,
-            "item": item,
-            "active_window_id": active_window_id,
-            "window": moved_window,
-            "restore_pending": moved_window is not None,
-        }
-
-    def activate_window(self, params):
-        self.ensure_round(params)
-        data = run_kwin_script("activate", params)
-        self.remember_desktop_snapshot(data)
-        wait_ms = int(params.get("wait_ms", 300))
-        if wait_ms > 0:
-            time.sleep(wait_ms / 1000.0)
-        return {
-            "backend": "kwin-scripting",
-            "activated": True,
-            "window": data.get("window"),
-            "desktop_snapshot": data.get("desktop_snapshot"),
-            "restore_pending": data.get("desktop_snapshot") is not None,
-        }
-
-    def click(self, params):
-        self.with_active_window_on_desktop_one()
-        return self.click_foreground(params)
-
     def click_foreground(self, params):
         x = float(params["x"])
         y = float(params["y"])
@@ -634,7 +1271,6 @@ class Broker:
         animation = self.move_pointer(portal, x, y, params)
         for i in range(count):
             portal.pointer_button(button, True)
-            self.glow_pulse(x, y, button)
             time.sleep(0.04)
             portal.pointer_button(button, False)
             if i + 1 < count and interval > 0:
@@ -646,14 +1282,8 @@ class Broker:
             "y": y,
             "button": button,
             "count": count,
-            "round_id": self.round_id,
-            "glow_active": self.glow_active,
             **animation,
         }
-
-    def drag(self, params):
-        self.with_active_window_on_desktop_one()
-        return self.drag_foreground(params)
 
     def drag_foreground(self, params):
         x = float(params["x"])
@@ -677,9 +1307,6 @@ class Broker:
         portal.pointer_button(button, False)
         return {"dragged": True, "backend": "xdg-desktop-portal", "from": [x, y], "to": [to_x, to_y], "button": button}
 
-    def scroll(self, params):
-        self.with_active_window_on_desktop_one()
-        return self.scroll_foreground(params)
 
     def scroll_foreground(self, params):
         dx = float(params.get("dx", 0))
@@ -695,37 +1322,22 @@ class Broker:
         return {"scrolled": True, "backend": "xdg-desktop-portal", "dx": dx, "dy": dy, "steps": steps}
 
     def move_pointer(self, portal, x, y, params):
-        self.ensure_round(params)
-        start = self.pointer_position or current_pointer_position()
-        if start is None:
-            portal.pointer_move(x, y)
-            self.glow_move(x, y)
-            self.pointer_position = (x, y)
-            return {"animated": False, "animation_steps": 1, "animation_ms": 0}
-
-        start_x, start_y = start
-        duration_ms, steps = pointer_animation_params(params, start_x, start_y, x, y)
+        start_x, start_y = current_pointer_position()
+        duration_ms, steps = pointer_animation_params(start_x, start_y, x, y)
         if duration_ms <= 0 or steps <= 1:
             portal.pointer_move(x, y)
-            self.glow_move(x, y)
-            self.pointer_position = (x, y)
             return {"animated": False, "animation_steps": 1, "animation_ms": 0}
 
         delay = duration_ms / 1000.0 / steps
         for step in range(1, steps + 1):
-            t = smoothstep(step / steps)
+            t = minimum_jerk(step / steps)
             next_x = start_x + (x - start_x) * t
             next_y = start_y + (y - start_y) * t
             portal.pointer_move(next_x, next_y)
-            self.glow_move(next_x, next_y)
             if step < steps and delay > 0:
                 time.sleep(delay)
-        self.pointer_position = (x, y)
         return {"animated": True, "animation_steps": steps, "animation_ms": duration_ms}
 
-    def key(self, params):
-        self.with_active_window_on_desktop_one()
-        return self.key_foreground(params)
 
     def key_foreground(self, params):
         key = params["key"]
@@ -738,323 +1350,231 @@ class Broker:
             portal.key_combo(key, modifiers)
         return {"pressed": True, "backend": "xdg-desktop-portal", "key": key, "modifiers": modifiers, "repeat": repeat}
 
-    def type_text(self, params):
-        self.with_active_window_on_desktop_one()
-        return self.type_text_foreground(params)
 
     def type_text_foreground(self, params):
         text = params["text"]
-        method = params.get("method", "auto")
         ensure_portal_input(params)
         portal = self.ensure_portal()
         portal.ensure_remote(180.0)
-        used = None
-        clipboard_modified = False
-        if method in ("auto", "clipboard") and (method == "clipboard" or should_use_clipboard(text)):
-            if try_wl_copy(text):
-                portal.key_combo("v", ["ctrl"])
-                used = "clipboard"
-                clipboard_modified = True
-            elif method == "clipboard":
-                raise RuntimeError("wl-copy failed or is not available")
-        if used is None:
-            for char in text:
-                portal.key_char(char)
-            used = "keysyms"
+        for char in text:
+            portal.key_char(char)
         if params.get("submit", False):
             portal.key_combo("enter", [])
         return {
             "typed": True,
             "backend": "xdg-desktop-portal",
-            "method": used,
+            "method": "keysyms",
             "characters": len(text),
-            "clipboard_modified": clipboard_modified,
             "submitted": bool(params.get("submit", False)),
         }
 
-    def wait(self, params):
-        ms = int(params.get("ms", 1000))
-        if ms > 0:
-            time.sleep(ms / 1000.0)
-        if params.get("observe", False):
-            observe_params = {"include_image": True, "include_windows": True}
-            for key in ("backend", "allow_portal_fallback"):
-                if key in params:
-                    observe_params[key] = params[key]
-            return {"waited_ms": ms, "observation": self.observe(observe_params)}
-        return {"waited_ms": ms}
-
-    def accessibility_tree(self, params):
-        return read_accessibility_tree(params)
-
-    def begin_round(self, params):
-        if not self.round_active:
-            self.round_id = "round-" + uuid.uuid4().hex
-            self.round_active = True
-        glow_requested = bool(params.get("glow", True))
-        glow_active = False
-        glow_error = None
-        if glow_requested:
-            try:
-                self.glow.start()
-                glow_active = bool(getattr(self.glow, "active", True))
-                self.glow_active = glow_active
-            except Exception as error:
-                glow_error = str(error)
-                self.glow_active = False
-        return {
-            "round_id": self.round_id,
-            "round_active": self.round_active,
-            "glow_active": glow_active,
-            "glow_error": glow_error,
-            "restore_pending": bool(self.desktop_snapshots),
-        }
-
-    def ensure_round(self, params=None):
-        params = params or {}
-        if not self.round_active:
-            self.begin_round({"glow": params.get("glow", True)})
-        return self.round_id
-
-    def end_round(self, params):
-        restore_result = self._restore_desktops()
-        self.stop_glow()
-        ended_round_id = self.round_id
-        self.round_id = None
-        self.round_active = False
-        self.glow_active = False
-        return {
-            "round_id": ended_round_id,
-            "round_active": False,
-            "glow_active": False,
-            **restore_result,
-        }
-
-    def glow_move(self, x, y):
-        if self.round_active:
-            self.glow.move(x, y)
-
-    def glow_pulse(self, x, y, button):
-        if self.round_active:
-            self.glow.pulse(x, y, button)
-
-    def stop_glow(self):
-        try:
-            self.glow.stop()
-        except Exception:
-            pass
-        self.glow_active = False
-
-    def remember_desktop_snapshot(self, data):
-        snapshot = data.get("desktop_snapshot")
-        if snapshot and snapshot.get("id"):
-            self.desktop_snapshots.setdefault(snapshot["id"], snapshot)
-
-    def with_active_window_on_desktop_one(self):
-        self.ensure_round({})
-        data = run_kwin_script("prepare_active_for_operation", {})
-        self.remember_desktop_snapshot(data)
-        return data.get("window")
-
-    def restore_desktop_snapshot(self, snapshot):
-        if snapshot and snapshot.get("id"):
-            run_kwin_script("restore_window_desktops", {"snapshot": snapshot})
-
-    def _restore_desktops(self):
-        snapshots = list(self.desktop_snapshots.values())
-        self.desktop_snapshots.clear()
-        restored = []
-        missing = []
-        errors = []
-        for snapshot in snapshots:
-            try:
-                data = run_kwin_script("restore_window_desktops", {"snapshot": snapshot})
-                if data.get("missing"):
-                    missing.append({"id": snapshot.get("id"), "caption": snapshot.get("caption")})
-                elif data.get("restored"):
-                    restored.append(data.get("window") or {"id": snapshot.get("id"), "caption": snapshot.get("caption")})
-            except Exception as error:
-                errors.append({"id": snapshot.get("id"), "caption": snapshot.get("caption"), "error": str(error)})
-        if errors:
-            raise RuntimeError(f"desktop restore failed: {errors}")
-        return {"restored": restored, "missing": missing, "count": len(restored), "missing_count": len(missing)}
-
-    def release_desktops(self, params):
-        restore_result = self._restore_desktops()
-        self.stop_glow()
-        self.round_id = None
-        self.round_active = False
-        self.glow_active = False
-        return restore_result
 
     def stop(self):
-        if self.desktop_snapshots or self.round_active:
-            self.end_round({})
+        self.isolated.stop({"force": True, "allow_stopped": True})
 
 
-class GlowOverlay:
-    def __init__(self, script_path=None):
-        self.script_path = Path(script_path or GLOW_OVERLAY_SCRIPT)
-        self.process = None
+class CursorGlowTheme:
+    def __init__(self, theme_path=None, apply_command=None, read_command=None, lock_path=None):
+        self.theme_name = CURSOR_GLOW_THEME_NAME
+        self.theme_path = Path(theme_path or glow_theme_path())
+        self.apply_command = Path(apply_command or "/usr/bin/plasma-apply-cursortheme")
+        self.read_command = Path(read_command or "/usr/bin/kreadconfig6")
+        self.lock_path = Path(lock_path) if lock_path else None
+        self.lock_file = None
+        self.original_theme = None
+        self.original_size = None
         self.active = False
         self.disabled = os.environ.get("CODEX_COMPUTER_USE_CURSOR_GLOW", "1").strip().lower() in ("0", "false", "no")
+
+    def metadata(self):
+        index_path = self.theme_path / "index.theme"
+        if not index_path.is_file():
+            raise RuntimeError(f"Computer Use cursor glow theme is not installed: {index_path}")
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(index_path, encoding="utf-8")
+        try:
+            section = parser["Icon Theme"]
+            base_theme = section["X-Codex-BaseTheme"].strip()
+            base_size = int(section["X-Codex-BaseSize"])
+            animation = section["X-Codex-Animation"].strip()
+        except (KeyError, ValueError) as error:
+            raise RuntimeError(f"Computer Use cursor glow theme metadata is invalid: {index_path}") from error
+        if not base_theme or base_size <= 0 or animation != "outward-edge-diffusion":
+            raise RuntimeError(f"Computer Use cursor glow theme metadata is invalid: {index_path}")
+        return {"base_theme": base_theme, "base_size": base_size}
+
+    def runtime_lock_path(self):
+        if self.lock_path is not None:
+            return self.lock_path
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime_dir:
+            raise RuntimeError("XDG_RUNTIME_DIR is required for Computer Use cursor glow ownership")
+        return Path(runtime_dir) / "codex-computer-use-cursor-glow.lock"
+
+    def acquire_lock(self):
+        lock_path = self.runtime_lock_path()
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock_file = lock_path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            self.lock_file.close()
+            self.lock_file = None
+            raise RuntimeError("Another foreground transaction owns the global cursor glow theme") from error
+
+    def release_lock(self):
+        if self.lock_file is None:
+            return
+        fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+        self.lock_file.close()
+        self.lock_file = None
+
+    def read_setting(self, key):
+        if not self.read_command.is_file() or not os.access(self.read_command, os.X_OK):
+            raise RuntimeError(f"Computer Use cursor setting reader is unavailable: {self.read_command}")
+        result = subprocess.run(
+            [str(self.read_command), "--file", "kcminputrc", "--group", "Mouse", "--key", key],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=CURSOR_THEME_COMMAND_TIMEOUT_SECONDS,
+            check=False,
+        )
+        if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f"Failed to read Plasma cursor setting {key}: {details}")
+        value = result.stdout.strip()
+        if not value:
+            raise RuntimeError(f"Plasma cursor setting {key} is empty")
+        return value
+
+    def current_theme(self):
+        theme = self.read_setting("cursorTheme")
+        size_text = self.read_setting("cursorSize")
+        try:
+            size = int(size_text)
+        except ValueError as error:
+            raise RuntimeError(f"Plasma cursor size is invalid: {size_text}") from error
+        if size <= 0:
+            raise RuntimeError(f"Plasma cursor size is invalid: {size_text}")
+        return theme, size
+
+    def apply_theme(self, theme, size):
+        if not self.apply_command.is_file() or not os.access(self.apply_command, os.X_OK):
+            raise RuntimeError(f"Plasma cursor theme command is unavailable: {self.apply_command}")
+        result = subprocess.run(
+            [str(self.apply_command), theme, "--size", str(size)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=CURSOR_THEME_COMMAND_TIMEOUT_SECONDS,
+            check=False,
+        )
+        if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f"Failed to apply Plasma cursor theme {theme}: {details}")
+        current_theme, current_size = self.current_theme()
+        if current_theme != theme or current_size != size:
+            raise RuntimeError(
+                f"Plasma did not activate cursor theme {theme} at size {size}: active={current_theme} size={current_size}"
+            )
 
     def start(self):
         if self.disabled:
             self.active = False
             return
-        if self.process is not None and self.process.poll() is None:
-            self.active = True
-            return
-        if not self.script_path.exists():
-            self.active = False
-            return
-        env = os.environ.copy()
-        env.setdefault("QT_QPA_PLATFORM", "xcb")
-        self.process = subprocess.Popen(
-            [sys.executable, str(self.script_path)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-            text=True,
-            start_new_session=True,
-        )
-        self.active = self.process.poll() is None
-
-    def send(self, payload):
-        if not self.active or self.process is None or self.process.poll() is not None or self.process.stdin is None:
-            self.active = False
+        if self.active:
             return
         try:
-            self.process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
-            self.process.stdin.flush()
-        except (BrokenPipeError, OSError):
+            metadata = self.metadata()
+            self.acquire_lock()
+            current_theme, current_size = self.current_theme()
+            if current_size != metadata["base_size"]:
+                raise RuntimeError(
+                    "Computer Use cursor glow theme size no longer matches Plasma; reactivate the staged install"
+                )
+            if current_theme == self.theme_name:
+                self.original_theme = metadata["base_theme"]
+            elif current_theme == metadata["base_theme"]:
+                self.original_theme = current_theme
+                self.apply_theme(self.theme_name, current_size)
+            else:
+                raise RuntimeError(
+                    "Computer Use cursor glow theme was generated for a different Plasma cursor theme; "
+                    "reactivate the staged install"
+                )
+            self.original_size = current_size
+            self.active = True
+        except Exception:
             self.active = False
-
-    def move(self, x, y):
-        self.send({"action": "move", "x": float(x), "y": float(y)})
-
-    def pulse(self, x, y, button):
-        self.send({"action": "pulse", "x": float(x), "y": float(y), "button": button})
+            self.original_theme = None
+            self.original_size = None
+            self.release_lock()
+            raise
 
     def stop(self):
-        if self.process is None:
-            self.active = False
+        if not self.active:
+            self.release_lock()
             return
-        self.send({"action": "stop"})
-        try:
-            if self.process.stdin is not None:
-                self.process.stdin.close()
-        except OSError:
-            pass
-        try:
-            self.process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            self.process.terminate()
-        self.process = None
+        self.apply_theme(self.original_theme, self.original_size)
         self.active = False
+        self.original_theme = None
+        self.original_size = None
+        self.release_lock()
 
 
-def capture_kwin_screenshot_png(crop, timeout_seconds):
-    import dbus
-    from PIL import Image
+def capture_kwin_screenshot_png(crop, timeout_seconds, env=None, window_id=None):
+    helper = screenshot_helper_path()
+    if not helper.is_file():
+        raise RuntimeError(f"Computer Use screenshot helper is not installed: {helper}")
+    if not os.access(helper, os.X_OK):
+        raise RuntimeError(f"Computer Use screenshot helper is not executable: {helper}")
 
-    bus = session_bus()
-    obj = bus.get_object("org.kde.KWin", "/org/kde/KWin/ScreenShot2")
-    iface = dbus.Interface(obj, "org.kde.KWin.ScreenShot2")
-    read_fd, write_fd = os.pipe()
-    chunks = []
-    reader_error = []
+    if window_id is not None:
+        args = [str(helper), "--window", str(window_id)]
+    elif crop is None:
+        args = [str(helper), "--workspace"]
+    else:
+        left = int(round(float(crop["x"])))
+        top = int(round(float(crop["y"])))
+        width = int(round(float(crop["width"])))
+        height = int(round(float(crop["height"])))
+        args = [str(helper), "--area", str(left), str(top), str(width), str(height)]
 
-    def reader():
-        try:
-            while True:
-                chunk = os.read(read_fd, 1024 * 1024)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-        except Exception as error:
-            reader_error.append(error)
-
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
     try:
-        options = dbus.Dictionary(
-            {
-                "include-cursor": dbus.Boolean(True, variant_level=1),
-                "native-resolution": dbus.Boolean(True, variant_level=1),
-            },
-            signature="sv",
+        result = subprocess.run(
+            args,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=max(float(timeout_seconds), 0.1),
+            check=False,
         )
-        if crop is None:
-            results = iface.CaptureWorkspace(options, dbus.types.UnixFd(write_fd), signature="a{sv}h", timeout=max(int(timeout_seconds), 5))
-        else:
-            left = int(round(float(crop["x"])))
-            top = int(round(float(crop["y"])))
-            width = int(round(float(crop["width"])))
-            height = int(round(float(crop["height"])))
-            results = iface.CaptureArea(
-                left,
-                top,
-                dbus.UInt32(width),
-                dbus.UInt32(height),
-                options,
-                dbus.types.UnixFd(write_fd),
-                signature="iiuua{sv}h",
-                timeout=max(int(timeout_seconds), 5),
-            )
-    finally:
-        try:
-            os.close(write_fd)
-        except OSError:
-            pass
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError(f"timed out waiting for Computer Use screenshot helper: {helper}") from error
 
-    thread.join(timeout_seconds)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        raise RuntimeError(f"Computer Use screenshot helper failed: {detail}")
+
     try:
-        os.close(read_fd)
-    except OSError:
-        pass
-    if thread.is_alive():
-        raise TimeoutError("timed out reading KWin ScreenShot2 pipe")
-    if reader_error:
-        raise reader_error[0]
+        payload = json.loads(result.stdout)
+        png_bytes = base64.b64decode(payload["data_base64"], validate=True)
+    except Exception as error:
+        raise RuntimeError(f"Computer Use screenshot helper returned invalid output: {error}") from error
 
-    metadata = native(results)
-    if metadata.get("type") != "raw":
-        raise RuntimeError(f"unsupported KWin screenshot type: {metadata.get('type')}")
-    width = int(metadata["width"])
-    height = int(metadata["height"])
-    stride = int(metadata["stride"])
-    image_format = int(metadata["format"])
-    raw = b"".join(chunks)
-    expected = stride * height
-    if len(raw) < expected:
-        raise RuntimeError(f"KWin screenshot pipe returned {len(raw)} bytes, expected at least {expected}")
-    image = qimage_raw_to_pillow(raw[:expected], width, height, stride, image_format)
-    out = io.BytesIO()
-    image.save(out, format="PNG")
+    if not png_bytes:
+        raise RuntimeError("Computer Use screenshot helper returned an empty image")
+
     return {
-        "bytes": out.getvalue(),
-        "width": width,
-        "height": height,
-        "cropped": crop is not None,
-        "scale": metadata.get("scale"),
-        "format": image_format,
+        "bytes": png_bytes,
+        "width": int(payload["width"]),
+        "height": int(payload["height"]),
+        "cropped": bool(payload["cropped"]),
+        "scale": payload.get("scale"),
+        "format": int(payload["format"]),
     }
-
-
-def qimage_raw_to_pillow(raw, width, height, stride, image_format):
-    from PIL import Image
-
-    # Common KWin/Spectacle formats on little-endian systems:
-    # QImage::Format_RGB32=4, ARGB32=5, ARGB32_Premultiplied=6 are stored as BGRA.
-    if image_format in (4, 5, 6):
-        return Image.frombytes("RGBA", (width, height), raw, "raw", "BGRA", stride, 1)
-    # QImage::Format_RGBX8888=16, RGBA8888=17, RGBA8888_Premultiplied=18.
-    if image_format in (16, 17, 18):
-        return Image.frombytes("RGBA", (width, height), raw, "raw", "RGBA", stride, 1)
-    raise RuntimeError(f"unsupported QImage format from KWin screenshot: {image_format}")
 
 
 class PortalSession:
@@ -1207,7 +1727,7 @@ class PortalSession:
                 {
                     "handle_token": self.string(token("rd_sources")),
                     "types": self.uint32(SCREENCAST_SOURCE_MONITOR),
-                    "multiple": self.boolean(False),
+                    "multiple": self.boolean(True),
                     "cursor_mode": self.uint32(SCREENCAST_CURSOR_EMBEDDED),
                 }
             ),
@@ -1285,13 +1805,35 @@ class PortalSession:
         return {"bytes": png_bytes, "width": width, "height": height, "cropped": cropped}
 
     def pointer_move(self, x, y):
+        stream_id, stream_x, stream_y = self.screen_to_stream_coordinates(x, y)
         self.remote.NotifyPointerMotionAbsolute(
             self.remote_session_handle,
             self.vardict({}),
-            self.uint32(self.remote_stream_id),
-            self.double(x),
-            self.double(y),
+            self.uint32(stream_id),
+            self.double(stream_x),
+            self.double(stream_y),
             timeout=5,
+        )
+
+    def screen_to_stream_coordinates(self, x, y):
+        if not self.remote_streams:
+            raise RuntimeError("RemoteDesktop portal has no absolute-coordinate stream")
+        screen_x, screen_y = float(x), float(y)
+        stream_descriptions = []
+        for stream_id, properties in self.remote_streams:
+            position = properties.get("position")
+            size = properties.get("size")
+            if not isinstance(position, (list, tuple)) or len(position) != 2:
+                raise RuntimeError(f"RemoteDesktop stream {stream_id} is missing its compositor position")
+            if not isinstance(size, (list, tuple)) or len(size) != 2:
+                raise RuntimeError(f"RemoteDesktop stream {stream_id} is missing its compositor size")
+            left, top = float(position[0]), float(position[1])
+            width, height = float(size[0]), float(size[1])
+            stream_descriptions.append({"id": stream_id, "position": [left, top], "size": [width, height]})
+            if left <= screen_x < left + width and top <= screen_y < top + height:
+                return int(stream_id), screen_x - left, screen_y - top
+        raise ValueError(
+            f"screen coordinate ({screen_x}, {screen_y}) is outside RemoteDesktop streams {stream_descriptions}"
         )
 
     def pointer_button(self, button, pressed):
@@ -1507,26 +2049,6 @@ def keysym_for_char(char):
     if codepoint <= 0xFF:
         return codepoint
     return 0x01000000 + codepoint
-
-
-def should_use_clipboard(text):
-    return any(ord(char) > 0x7F for char in text) or len(text) > 80
-
-
-def try_wl_copy(text):
-    try:
-        subprocess.run(
-            ["wl-copy"],
-            input=text,
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=5,
-        )
-        return True
-    except Exception:
-        return False
 
 
 def desktop_summary():
@@ -1827,8 +2349,8 @@ def kwin_script_source(service_name, object_path, action, args):
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   }}
-  function geometryOf(window) {{
-    const g = prop(window, "frameGeometry", null);
+  function geometryProperty(window, propertyName) {{
+    const g = prop(window, propertyName, null);
     if (g) {{
       return {{
         x: number(g.x, 0),
@@ -1837,6 +2359,11 @@ def kwin_script_source(service_name, object_path, action, args):
         height: number(g.height, 0)
       }};
     }}
+    return null;
+  }}
+  function geometryOf(window) {{
+    const frame = geometryProperty(window, "frameGeometry");
+    if (frame) return frame;
     return {{
       x: number(prop(window, "x", 0), 0),
       y: number(prop(window, "y", 0), 0),
@@ -1891,11 +2418,6 @@ def kwin_script_source(service_name, object_path, action, args):
     }}
     return desktopInfo(current, -1);
   }}
-  function desktopOne() {{
-    const list = prop(workspace, "desktops", []);
-    if (!list || list.length < 1) throw new Error("KWin did not report virtual desktop 1");
-    return list[0];
-  }}
   function desktopIndex(desktop) {{
     const list = prop(workspace, "desktops", []);
     const id = text(prop(desktop, "id", ""));
@@ -1925,44 +2447,9 @@ def kwin_script_source(service_name, object_path, action, args):
     for (let i = 0; i < list.length; i++) out.push(desktopInfo(list[i], desktopIndex(list[i])));
     return out;
   }}
-  function captureDesktopSnapshot(window, index) {{
-    if (!window) return null;
-    return {{
-      id: windowId(window, index),
-      caption: text(prop(window, "caption", "")),
-      on_all_desktops: Boolean(prop(window, "onAllDesktops", false)),
-      desktops: windowDesktops(window)
-    }};
-  }}
-  function moveToDesktopOne(window) {{
-    const target = desktopOne();
-    if (Boolean(prop(window, "onAllDesktops", false))) window.onAllDesktops = false;
-    window.desktops = [target];
-    workspace.currentDesktop = target;
-  }}
-  function restoreDesktopSnapshot(window, snapshot) {{
-    if (!window || !snapshot) return false;
-    if (Boolean(prop(snapshot, "on_all_desktops", false))) {{
-      window.onAllDesktops = true;
-      return true;
-    }}
-    const snapshots = prop(snapshot, "desktops", []);
-    const restored = [];
-    for (let i = 0; i < snapshots.length; i++) {{
-      if (prop(snapshots[i], "id", "") === "*") {{
-        window.onAllDesktops = true;
-        return true;
-      }}
-      const desktop = desktopBySnapshot(snapshots[i]);
-      if (desktop) restored.push(desktop);
-    }}
-    if (restored.length < 1) throw new Error("Could not resolve previous virtual desktop for " + text(prop(snapshot, "caption", "")));
-    window.onAllDesktops = false;
-    window.desktops = restored;
-    return true;
-  }}
   function serialize(window, index) {{
     const geom = geometryOf(window);
+    const bufferGeom = geometryProperty(window, "bufferGeometry") || geom;
     const active = prop(workspace, "activeWindow", null) === window;
     return {{
       id: windowId(window, index),
@@ -1976,6 +2463,8 @@ def kwin_script_source(service_name, object_path, action, args):
       y: geom.y,
       width: geom.width,
       height: geom.height,
+      frame_geometry: geom,
+      buffer_geometry: bufferGeom,
       active,
       minimized: Boolean(prop(window, "minimized", false)),
       specialWindow: Boolean(prop(window, "specialWindow", false)),
@@ -2002,34 +2491,28 @@ def kwin_script_source(service_name, object_path, action, args):
       windows: out,
       active_window_id: activeId,
       virtual_desktops: workspaceDesktops(),
-      current_virtual_desktop: currentVirtualDesktop(),
-      desktop_one: desktopInfo(desktopOne(), 0)
+      current_virtual_desktop: currentVirtualDesktop()
     }};
   }}
-  function matches(window, index) {{
-    if (args.window_id && windowId(window, index) !== String(args.window_id)) return false;
-    if (args.index !== undefined && Number(args.index) !== index) return false;
-    const joined = [
-      text(prop(window, "caption", "")),
-      text(prop(window, "resourceClass", "")),
-      text(prop(window, "resourceName", "")),
-      text(prop(window, "desktopFileName", ""))
-    ].join(" ").toLowerCase();
-    if (args.app && joined.indexOf(String(args.app).toLowerCase()) < 0) return false;
-    if (args.title && text(prop(window, "caption", "")).toLowerCase().indexOf(String(args.title).toLowerCase()) < 0) return false;
+  function geometryMatches(actual, expected) {{
+    if (!expected) return true;
+    if (!actual) return false;
+    const keys = ["x", "y", "width", "height"];
+    for (let i = 0; i < keys.length; i++) {{
+      const key = keys[i];
+      if (Math.abs(number(actual[key], 0) - number(expected[key], 0)) > 0.01) return false;
+    }}
     return true;
+  }}
+  function findWindowById(id) {{
+    const list = windows();
+    for (let i = 0; i < list.length; i++) {{
+      if (windowId(list[i], i) === String(id)) return {{ window: list[i], index: i }};
+    }}
+    return null;
   }}
 
   try {{
-    if (action === "list_desktops") {{
-      send({{
-        ok: true,
-        virtual_desktops: workspaceDesktops(),
-        current_virtual_desktop: currentVirtualDesktop(),
-        desktop_one: desktopInfo(desktopOne(), 0)
-      }});
-      return;
-    }}
     if (action === "cursor_position") {{
       const pos = cursorPosition();
       if (!pos) {{
@@ -2043,51 +2526,85 @@ def kwin_script_source(service_name, object_path, action, args):
       send(collect());
       return;
     }}
-    if (action === "prepare_active_for_operation") {{
-      const window = prop(workspace, "activeWindow", null);
-      if (window) {{
-        const list = windows();
-        let activeIndex = -1;
-        for (let i = 0; i < list.length; i++) if (list[i] === window) activeIndex = i;
-        const snapshot = captureDesktopSnapshot(window, activeIndex);
-        moveToDesktopOne(window);
-        send({{ ok: true, window: serialize(window, activeIndex), desktop_snapshot: snapshot, desktop_one: desktopInfo(desktopOne(), 0) }});
-        return;
-      }}
-      send({{ ok: true, window: null, desktop_snapshot: null, desktop_one: desktopInfo(desktopOne(), 0) }});
-      return;
-    }}
-    if (action === "restore_window_desktops") {{
-      const snapshot = args.snapshot || null;
-      if (!snapshot || !snapshot.id) {{
-        send({{ ok: true, restored: false, missing: false }});
-        return;
-      }}
-      const list = windows();
-      for (let i = 0; i < list.length; i++) {{
-        const window = list[i];
-        if (windowId(window, i) !== String(snapshot.id)) continue;
-        const restored = restoreDesktopSnapshot(window, snapshot);
-        send({{ ok: true, restored, window: serialize(window, i) }});
-        return;
-      }}
-      send({{ ok: true, restored: false, missing: true, snapshot }});
-      return;
-    }}
-    if (action === "activate") {{
-      const list = windows();
-      for (let i = 0; i < list.length; i++) {{
-        const window = list[i];
-        if (!matches(window, i)) continue;
-        const snapshot = captureDesktopSnapshot(window, i);
-        moveToDesktopOne(window);
+    if (action === "lease_acquire") {{
+      const found = findWindowById(args.window_id);
+      if (!found) throw new Error("foreground lease target window no longer exists");
+      const window = found.window;
+      const serialized = serialize(window, found.index);
+      if (number(args.expected_pid, 0) > 0 && serialized.pid !== number(args.expected_pid, 0)) throw new Error("foreground lease target pid changed");
+      if (!geometryMatches(serialized.frame_geometry, args.expected_frame_geometry)) throw new Error("foreground lease frame geometry changed");
+      if (!geometryMatches(serialized.buffer_geometry, args.expected_buffer_geometry)) throw new Error("foreground lease buffer geometry changed");
+      const priorDesktopObject = prop(workspace, "currentDesktop", null);
+      const priorDesktop = currentVirtualDesktop();
+      const priorActive = prop(workspace, "activeWindow", null);
+      const priorActiveId = priorActive ? windowId(priorActive, windows().indexOf(priorActive)) : "";
+      try {{
+        if (!Boolean(prop(window, "onAllDesktops", false))) {{
+          const targetDesktops = prop(window, "desktops", []);
+          if (!targetDesktops || targetDesktops.length < 1) throw new Error("foreground lease target has no virtual desktop");
+          workspace.currentDesktop = targetDesktops[0];
+        }}
         if (prop(window, "minimized", false)) window.minimized = false;
         workspace.activeWindow = window;
         if (typeof window.raise === "function") window.raise();
-        send({{ ok: true, window: serialize(window, i), desktop_snapshot: snapshot }});
+        const active = prop(workspace, "activeWindow", null);
+        if (active !== window) throw new Error("KWin did not grant foreground focus to the lease target");
+      }} catch (error) {{
+        if (serialized.minimized) window.minimized = true;
+        if (priorDesktopObject) workspace.currentDesktop = priorDesktopObject;
+        if (priorActive) workspace.activeWindow = priorActive;
+        throw error;
+      }}
+      send({{
+        ok: true,
+        lease: {{
+          target_window_id: windowId(window, found.index),
+          previous_active_window_id: priorActiveId,
+          previous_desktop: priorDesktop,
+          target_was_minimized: serialized.minimized,
+          frame_geometry: serialized.frame_geometry,
+          buffer_geometry: serialized.buffer_geometry
+        }},
+        window: serialize(window, found.index)
+      }});
+      return;
+    }}
+    if (action === "lease_validate") {{
+      const lease = args.lease || {{}};
+      const active = prop(workspace, "activeWindow", null);
+      const list = windows();
+      let activeIndex = -1;
+      for (let i = 0; i < list.length; i++) if (list[i] === active) activeIndex = i;
+      const owned = active && windowId(active, activeIndex) === String(lease.target_window_id || "");
+      const serialized = owned ? serialize(active, activeIndex) : null;
+      const geometryValid = owned && geometryMatches(serialized.frame_geometry, lease.frame_geometry) && geometryMatches(serialized.buffer_geometry, lease.buffer_geometry);
+      send({{ ok: true, owned: Boolean(owned && geometryValid), geometry_valid: Boolean(geometryValid), window: serialized }});
+      return;
+    }}
+    if (action === "lease_release") {{
+      const lease = args.lease || {{}};
+      const active = prop(workspace, "activeWindow", null);
+      const list = windows();
+      let activeIndex = -1;
+      for (let i = 0; i < list.length; i++) if (list[i] === active) activeIndex = i;
+      if (!active || windowId(active, activeIndex) !== String(lease.target_window_id || "")) {{
+        send({{ ok: true, restored: false, reason: "lease ownership changed" }});
         return;
       }}
-      send({{ ok: false, error: "no KWin window matched activation request" }});
+      const serialized = serialize(active, activeIndex);
+      if (!geometryMatches(serialized.frame_geometry, lease.frame_geometry) || !geometryMatches(serialized.buffer_geometry, lease.buffer_geometry)) {{
+        send({{ ok: true, restored: false, reason: "lease geometry changed" }});
+        return;
+      }}
+      const previousDesktop = desktopBySnapshot(lease.previous_desktop || {{}});
+      if (previousDesktop) workspace.currentDesktop = previousDesktop;
+      const previousActive = findWindowById(lease.previous_active_window_id || "");
+      if (previousActive) {{
+        workspace.activeWindow = previousActive.window;
+        if (typeof previousActive.window.raise === "function") previousActive.window.raise();
+      }}
+      if (Boolean(lease.target_was_minimized)) active.minimized = true;
+      send({{ ok: true, restored: true }});
       return;
     }}
     send({{ ok: false, error: "unknown KWin action: " + action }});
@@ -2236,25 +2753,6 @@ def executable_names(exec_line):
     return names
 
 
-def desktop_entry_window_queries(entry):
-    values = []
-    for value in (
-        entry.get("startup_wm_class", ""),
-        *executable_names(entry.get("exec", "")),
-        entry.get("desktop_id", ""),
-        Path(entry.get("desktop_id", "")).stem,
-        entry.get("name", ""),
-    ):
-        value = str(value or "").strip()
-        if not value:
-            continue
-        if value.startswith("%"):
-            continue
-        if value not in values:
-            values.append(value)
-    return values
-
-
 def is_generated_chrome_web_app(entry):
     desktop_id = str(entry.get("desktop_id", "")).lower()
     exec_line = str(entry.get("exec", "")).lower()
@@ -2284,28 +2782,8 @@ def public_window(window, detail):
     }
 
 
-def select_launch_window(windows, before_window_ids, process_pid):
-    for window in windows:
-        window_id = window.get("id")
-        if window_id and window_id not in before_window_ids:
-            return window
-    for window in windows:
-        try:
-            if int(window.get("pid", 0)) == int(process_pid):
-                return window
-        except (TypeError, ValueError):
-            continue
-    return windows[0] if windows else None
-
-
-def select_existing_window(windows):
-    for window in windows:
-        if window.get("active"):
-            return window
-    for window in windows:
-        if not window.get("minimized"):
-            return window
-    return windows[0] if windows else None
+def window_title(window):
+    return str(window.get("caption") or window.get("title") or "")
 
 
 def select_desktop_entry(entries, desktop_id, query):
@@ -2343,54 +2821,711 @@ def expand_exec(exec_line, extra_args):
     return expanded
 
 
-def read_accessibility_tree(params):
+def ui_root_identity(root):
+    return f"{root.get('kind', '')}:{root.get('backend_ref', '')}:{root.get('resource_key', '')}"
+
+
+def public_ui_root(root):
+    return {
+        key: value
+        for key, value in root.items()
+        if not key.startswith("backend_") and key not in ("resource_key",)
+    }
+
+
+def resolve_exact_root_window(root, list_windows, allow_missing=False):
+    window_id = str(root.get("backend_ref") or "")
+    if not window_id:
+        raise ValueError("window root is missing its exact KWin id")
+    windows = list_windows(
+        {
+            "include_special": True,
+            "include_minimized": True,
+            "detail": "full",
+            "limit": 200,
+        }
+    ).get("windows", [])
+    for window in windows:
+        if str(window.get("id") or "") != window_id:
+            continue
+        expected_pid = int(root.get("pid") or 0)
+        actual_pid = accessibility_target_pid(window)
+        if expected_pid > 0 and actual_pid != expected_pid:
+            raise ValueError(f"window root pid changed from {expected_pid} to {actual_pid}; call find_roots again")
+        return window
+    if allow_missing:
+        return None
+    raise ValueError(f"KWin window root {window_id!r} no longer exists; call find_roots again")
+
+
+def validate_root_geometry(root, list_windows):
+    window = resolve_exact_root_window(root, list_windows)
+    for key in ("frame_geometry", "buffer_geometry"):
+        expected = root.get(key)
+        actual = window.get(key)
+        if expected is not None and geometry_signature(expected) != geometry_signature(actual):
+            raise ValueError(f"window {key} changed after observation; call observe_ui again")
+    transform = root.get("backend_coordinate_transform")
+    if not isinstance(transform, dict) or transform.get("window_id") != str(window.get("id") or ""):
+        raise ValueError("window coordinate transform is missing or stale; call observe_ui again")
+    return window
+
+
+def geometry_signature(geometry):
+    if not isinstance(geometry, dict):
+        return None
+    return tuple(round(float(geometry.get(key, 0)), 4) for key in ("x", "y", "width", "height"))
+
+
+def resolve_exact_application_root(root):
+    desktop_id = str(root.get("backend_ref") or "")
+    for entry in find_desktop_entries():
+        if entry.get("desktop_id") == desktop_id:
+            return entry
+    raise ValueError(f"desktop entry {desktop_id!r} no longer exists; call find_roots again")
+
+
+def resolve_exact_tray_root(root):
+    item_ref = str(root.get("backend_ref") or "")
+    for item in read_status_notifier_items()["items"]:
+        if item.get("ref") == item_ref:
+            return item
+    raise ValueError(f"StatusNotifierItem {item_ref!r} no longer exists; call find_roots again")
+
+
+def screenshot_payload(png):
+    return {
+        "mime_type": "image/png",
+        "data_base64": base64.b64encode(png["bytes"]).decode("ascii"),
+        "width": png["width"],
+        "height": png["height"],
+        "cropped": png["cropped"],
+        "scale": png.get("scale"),
+    }
+
+
+def synthetic_root_observation(root, kind, target, look_store):
+    look_id = look_store.begin(ui_root_identity(root))
+    capabilities = ["action"]
+    wire_ref = look_store.bind(look_id, kind, target, capabilities)
+    if kind == "application":
+        name = str(target.get("name") or target.get("desktop_id") or "")
+        role = "application"
+        actions = ["launch"]
+    else:
+        name = str(target.get("title") or target.get("id") or target.get("ref") or "")
+        role = "status icon"
+        actions = ["activate"]
+    return {
+        "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
+        "look_id": look_id,
+        "captured_at": time.time(),
+        "root": public_ui_root(root),
+        "backend_root": root,
+        "window": None,
+        "coordinate_space": {"name": "none"},
+        "outline": {
+            "nodes": [
+                {
+                    "wire_ref": wire_ref,
+                    "depth": 0,
+                    "name": name,
+                    "role": role,
+                    "description": "",
+                    "states": ["enabled"],
+                    "bounds": None,
+                    "actions": actions,
+                    "capabilities": capabilities,
+                }
+            ],
+            "truncated": False,
+        },
+    }
+
+
+def missing_window_observation(root, look_store):
+    look_id = look_store.begin(ui_root_identity(root))
+    wire_ref = look_store.bind(look_id, "missing", root, [])
+    return {
+        "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
+        "look_id": look_id,
+        "captured_at": time.time(),
+        "root": {**public_ui_root(root), "present": False},
+        "backend_root": root,
+        "window": None,
+        "coordinate_space": {"name": "none"},
+        "outline": {
+            "nodes": [
+                {
+                    "wire_ref": wire_ref,
+                    "depth": 0,
+                    "name": str(root.get("title") or ""),
+                    "role": {"application": "application", "tray_item": "status icon"}.get(root.get("kind"), "window"),
+                    "description": "",
+                    "states": ["defunct"],
+                    "bounds": None,
+                    "capabilities": [],
+                }
+            ],
+            "truncated": False,
+        },
+    }
+
+
+def map_accessibility_to_window_image(tree, window, png):
+    nodes = tree.get("nodes") or []
+    paired_bounds = [
+        (node.get("bounds"), node.get("backend_window_bounds"), int(node.get("depth") or 0))
+        for node in nodes
+        if usable_bounds(node.get("bounds")) and usable_bounds(node.get("backend_window_bounds"))
+    ]
+    screen_bounds = [node.get("bounds") for node in nodes if usable_bounds(node.get("bounds"))]
+    geometries = []
+    for key in ("buffer_geometry", "frame_geometry"):
+        geometry = window.get(key)
+        if geometry and float(geometry.get("width", 0)) > 0 and float(geometry.get("height", 0)) > 0:
+            if paired_bounds:
+                anchor_screen, anchor_window, anchor_depth = min(
+                    paired_bounds,
+                    key=lambda item: (
+                        bounds_size_distance(item[1], geometry),
+                        item[2],
+                    ),
+                )
+                distance = bounds_size_distance(anchor_window, geometry)
+                geometries.append((distance, anchor_depth, key, geometry, anchor_screen, anchor_window))
+            elif screen_bounds:
+                anchor_screen = min(screen_bounds, key=lambda bounds: bounds_size_distance(bounds, geometry))
+                distance = bounds_size_distance(anchor_screen, geometry)
+                geometries.append((distance, 0, key, geometry, anchor_screen, None))
+            else:
+                geometries.append((0, 0, key, geometry, None, None))
+    if not geometries:
+        raise RuntimeError("KWin did not provide usable frame or buffer geometry")
+    _, _, source, geometry, anchor_screen, anchor_window = min(
+        geometries,
+        key=lambda item: (item[0], item[1], item[2] != "buffer_geometry"),
+    )
+    scale_x = float(png["width"]) / float(geometry["width"])
+    scale_y = float(png["height"]) / float(geometry["height"])
+    origin_x = float(geometry["x"])
+    origin_y = float(geometry["y"])
+    accessibility_source = classify_accessibility_coordinate_space(
+        anchor_screen,
+        anchor_window,
+        origin_x,
+        origin_y,
+    )
+    for node in nodes:
+        if accessibility_source == "screen":
+            bounds = node.get("bounds")
+            offset_x = origin_x
+            offset_y = origin_y
+        elif accessibility_source == "window-local":
+            bounds = node.get("backend_window_bounds")
+            offset_x = 0.0
+            offset_y = 0.0
+        else:
+            node["bounds"] = None
+            continue
+        if not usable_bounds(bounds):
+            node["bounds"] = None
+            continue
+        node["bounds"] = {
+            "x": (float(bounds["x"]) - offset_x) * scale_x,
+            "y": (float(bounds["y"]) - offset_y) * scale_y,
+            "width": float(bounds["width"]) * scale_x,
+            "height": float(bounds["height"]) * scale_y,
+        }
+    return {
+        "window_id": str(window.get("id") or ""),
+        "geometry_source": source,
+        "accessibility_source_space": accessibility_source,
+        "origin_x": origin_x,
+        "origin_y": origin_y,
+        "scale_x": scale_x,
+        "scale_y": scale_y,
+        "image_width": int(png["width"]),
+        "image_height": int(png["height"]),
+    }
+
+
+def usable_bounds(bounds):
+    return (
+        isinstance(bounds, dict)
+        and float(bounds.get("width", 0)) > 0
+        and float(bounds.get("height", 0)) > 0
+    )
+
+
+def bounds_size_distance(bounds, geometry):
+    return abs(float(bounds["width"]) - float(geometry["width"])) + abs(
+        float(bounds["height"]) - float(geometry["height"])
+    )
+
+
+def classify_accessibility_coordinate_space(screen_bounds, window_bounds, origin_x, origin_y):
+    if not usable_bounds(screen_bounds) or not usable_bounds(window_bounds):
+        return "unavailable"
+    delta_x = float(screen_bounds["x"]) - float(window_bounds["x"])
+    delta_y = float(screen_bounds["y"]) - float(window_bounds["y"])
+    local_error = abs(delta_x) + abs(delta_y)
+    screen_error = abs(delta_x - origin_x) + abs(delta_y - origin_y)
+    tolerance = 2.0
+    if local_error <= tolerance and screen_error <= tolerance:
+        return "window-local"
+    if local_error <= tolerance:
+        return "window-local"
+    if screen_error <= tolerance:
+        return "screen"
+    return "unavailable"
+
+
+def map_window_image_point(root, x, y):
+    if x is None or y is None:
+        raise ValueError("foreground coordinates require both x and y")
+    transform = root.get("backend_coordinate_transform") or {}
+    point_x = float(x)
+    point_y = float(y)
+    width = float(transform.get("image_width", 0))
+    height = float(transform.get("image_height", 0))
+    if not (0 <= point_x < width and 0 <= point_y < height):
+        raise ValueError(f"window-image coordinate ({point_x}, {point_y}) is outside {width}x{height}")
+    scale_x = float(transform.get("scale_x", 0))
+    scale_y = float(transform.get("scale_y", 0))
+    if scale_x <= 0 or scale_y <= 0:
+        raise ValueError("window coordinate transform has an invalid scale")
+    return (
+        float(transform["origin_x"]) + point_x / scale_x,
+        float(transform["origin_y"]) + point_y / scale_y,
+    )
+
+
+def foreground_action_point(root, binding, action):
+    if action.get("x") is not None or action.get("y") is not None:
+        return map_window_image_point(root, action.get("x"), action.get("y"))
+    if binding is None or binding.get("kind") != "atspi":
+        raise ValueError("foreground action requires window-image coordinates or an AT-SPI element ref")
+    transform = root.get("backend_coordinate_transform") or {}
+    source_space = transform.get("accessibility_source_space")
+    if source_space == "screen":
+        bounds = accessible_bounds(binding["target"], AT_SPI_COORD_TYPE_SCREEN)
+        offset_x = float(transform.get("origin_x", 0))
+        offset_y = float(transform.get("origin_y", 0))
+    elif source_space == "window-local":
+        bounds = accessible_bounds(binding["target"], AT_SPI_COORD_TYPE_WINDOW)
+        offset_x = 0.0
+        offset_y = 0.0
+    else:
+        raise ValueError("AT-SPI coordinate space is unavailable; use explicit window-image coordinates")
+    if not usable_bounds(bounds):
+        raise ValueError("AT-SPI element has no usable bounds in the observed coordinate space")
+    image_x = (float(bounds["x"]) + float(bounds["width"]) / 2 - offset_x) * float(transform["scale_x"])
+    image_y = (float(bounds["y"]) + float(bounds["height"]) / 2 - offset_y) * float(transform["scale_y"])
+    try:
+        return map_window_image_point(root, image_x, image_y)
+    except ValueError as error:
+        raise ValueError("AT-SPI element center is outside the observed window image; call observe_ui again") from error
+
+
+class ForegroundLease:
+    def __init__(self, broker, root):
+        self.broker = broker
+        self.root = root
+        self.snapshot = None
+        self.cursor = None
+        self.pointer_visual_active = False
+
+    def acquire(self):
+        validate_root_geometry(self.root, self.broker.list_windows)
+        self.cursor = current_pointer_position()
+        self.snapshot = run_kwin_script(
+            "lease_acquire",
+            {
+                "window_id": self.root.get("backend_ref"),
+                "expected_pid": int(self.root.get("pid") or 0),
+                "expected_frame_geometry": self.root.get("frame_geometry"),
+                "expected_buffer_geometry": self.root.get("buffer_geometry"),
+            },
+        ).get("lease")
+        if not self.snapshot:
+            raise RuntimeError("KWin did not return a foreground lease")
+
+    def validate(self):
+        if self.snapshot is None:
+            raise RuntimeError("foreground lease is not active")
+        validation = run_kwin_script("lease_validate", {"lease": self.snapshot})
+        if not validation.get("owned"):
+            raise RuntimeError("foreground lease lost window, focus, or geometry ownership")
+
+    def ensure_pointer_visual(self):
+        if self.pointer_visual_active or self.broker.glow is None:
+            return
+        self.broker.glow.start()
+        self.pointer_visual_active = True
+
+    def release(self):
+        try:
+            if self.snapshot is None:
+                return {"backend": "foreground-lease", "outcome": "worked", "restored": False}
+            validation = run_kwin_script("lease_validate", {"lease": self.snapshot})
+            if validation.get("owned") and self.cursor is not None:
+                if self.broker.pointer_restorer is not None:
+                    self.broker.pointer_restorer(*self.cursor)
+                elif self.broker.portal is not None:
+                    self.broker.portal.pointer_move(*self.cursor)
+            released = run_kwin_script("lease_release", {"lease": self.snapshot})
+            self.snapshot = None
+            restored = bool(released.get("restored"))
+            return {
+                "backend": "foreground-lease",
+                "outcome": "worked" if restored else "unknown",
+                "restored": restored,
+                "reason": released.get("reason"),
+            }
+        finally:
+            if self.pointer_visual_active:
+                self.broker.glow.stop()
+                self.pointer_visual_active = False
+
+
+def launch_desktop_entry(entry):
+    command = expand_exec(entry.get("exec", ""), [])
+    if not command:
+        raise ValueError(f"desktop entry has no executable command: {entry.get('desktop_id')}")
+    return subprocess.Popen(
+        command,
+        cwd=os.path.expanduser("~"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def preferred_accessible_action(interface):
+    names = [str(interface.getName(index) or "").strip().lower() for index in range(interface.nActions)]
+    for preferred in ("click", "press", "activate", "open"):
+        for index, name in enumerate(names):
+            if preferred in name:
+                return index
+    if not names:
+        raise ValueError("AT-SPI Action interface exposes no actions")
+    return 0
+
+
+def read_binding_text(binding, start=0, end=-1):
+    if binding["kind"] == "missing":
+        raise ValueError("element is defunct")
+    if binding["kind"] in ("application", "tray_item"):
+        target = binding["target"]
+        return str(target.get("name") or target.get("title") or target.get("id") or ""), None
+    accessible = binding["target"]
+    text = ""
+    try:
+        text_interface = accessible.queryText()
+        character_count = int(text_interface.characterCount)
+        actual_end = character_count if end < 0 else min(character_count, end)
+        text = str(text_interface.getText(min(start, actual_end), actual_end))
+    except Exception:
+        text = accessible_text(accessible)
+    value = None
+    try:
+        value = native(accessible.queryValue().currentValue)
+    except Exception:
+        pass
+    return text, value
+
+
+def read_binding_selection(binding):
+    if binding["kind"] != "atspi":
+        return []
+    return accessible_selection(binding["target"])
+
+
+def binding_snapshot(binding):
+    if binding["kind"] == "missing":
+        return {"alive": False, "role": "window", "text": "", "value": None}
+    if binding["kind"] in ("application", "tray_item"):
+        target = binding["target"]
+        return {
+            "alive": True,
+            "role": "application" if binding["kind"] == "application" else "status icon",
+            "text": str(target.get("name") or target.get("title") or target.get("id") or ""),
+            "value": None,
+        }
+    accessible = binding["target"]
+    try:
+        import pyatspi
+
+        state = accessible.getState()
+        if state.contains(pyatspi.STATE_DEFUNCT):
+            return {"alive": False, "role": "", "text": "", "value": None}
+    except Exception:
+        pass
+    try:
+        role = str(accessible.getRoleName() or "")
+    except Exception:
+        return {"alive": False, "role": "", "text": "", "value": None}
+    text, value = read_binding_text(binding)
+    return {"alive": True, "role": role, "text": text, "value": value}
+
+
+def expectation_matches(snapshot, expect):
+    if "gone" in expect:
+        desired_gone = bool(expect["gone"])
+        if desired_gone != (not snapshot["alive"]):
+            return False
+    elif not snapshot["alive"]:
+        return False
+    if "role" in expect and str(snapshot["role"]).strip().lower() != str(expect["role"]).strip().lower():
+        return False
+    if "text" in expect and str(expect["text"]) not in str(snapshot["text"]):
+        return False
+    if "value" in expect and snapshot["value"] != expect["value"]:
+        return False
+    return True
+
+
+def evaluate_expectation(look_store, look_id, expect):
+    wire_ref = expect.get("wire_ref")
+    if wire_ref:
+        snapshot = binding_snapshot(look_store.require(look_id, wire_ref))
+        return expectation_matches(snapshot, expect), snapshot
+    if expect.get("gone"):
+        raise ValueError("expect.gone requires an element ref")
+    snapshots = [binding_snapshot(binding) for binding in look_store.bindings(look_id)]
+    for snapshot in snapshots:
+        if expectation_matches(snapshot, expect):
+            return True, snapshot
+    return False, {"candidate_count": len(snapshots)}
+
+
+def evaluate_observation_expectation(observation, expect):
+    nodes = observation.get("outline", {}).get("nodes", [])
+    if "gone" in expect:
+        root = observation.get("root") or {}
+        root_node = nodes[0] if nodes else {}
+        snapshot = {
+            "alive": root.get("present") is not False,
+            "role": root_node.get("role", root.get("kind", "")),
+            "text": root_node.get("text") or root_node.get("name") or root.get("title") or "",
+            "value": root_node.get("value"),
+        }
+        return expectation_matches(snapshot, expect), snapshot
+    for node in nodes:
+        snapshot = {
+            "alive": "defunct" not in (node.get("states") or []),
+            "role": node.get("role", ""),
+            "text": node.get("text") or node.get("name") or "",
+            "value": node.get("value"),
+        }
+        if expectation_matches(snapshot, expect):
+            return True, snapshot
+    return False, {"candidate_count": len(nodes)}
+
+
+def transaction_outcome(evidence, has_expectation):
+    if has_expectation:
+        expectation = next((item for item in reversed(evidence) if "matched" in item), None)
+        if expectation is None:
+            raise RuntimeError("transaction expectation evidence is missing")
+        return expectation["outcome"]
+    outcomes = [item.get("outcome") for item in evidence]
+    if any(outcome == "unknown" for outcome in outcomes):
+        return "unknown"
+    if any(outcome == "didnt" for outcome in outcomes):
+        return "didnt"
+    return "worked"
+
+
+def read_accessibility_tree(params, look_store=None, root_identity=None):
     import pyatspi
 
     max_depth = int(params.get("max_depth", 5))
     max_nodes = int(params.get("max_nodes", 200))
-    app_filter = params.get("app")
-    title_filter = params.get("title")
+    target_window = params.get("target_window") or {}
+    title_terms = accessibility_title_terms(target_window)
+    target_pid = accessibility_target_pid(target_window)
+    if target_pid <= 0:
+        raise ValueError(f"KWin target window has no process id for AT-SPI scoping: {public_window(target_window, 'summary')}")
+    if not title_terms:
+        raise ValueError(f"KWin target window has no title for AT-SPI window scoping: {public_window(target_window, 'summary')}")
     desktop = pyatspi.Registry.getDesktop(0)
     roots = []
+    app_candidates = []
     for index in range(desktop.childCount):
         try:
             app = desktop.getChildAtIndex(index)
-            app_name = safe_attr(app, "name")
-            if app_filter and not lower_contains(app_name, app_filter):
+            app_candidates.append(accessible_label(app))
+            if accessible_process_id(app) != target_pid:
                 continue
             roots.append(app)
         except Exception:
             continue
+    if not roots:
+        raise ValueError(
+            "no AT-SPI application matched KWin window process id "
+            f"pid={target_pid} candidates={app_candidates[:12]}"
+        )
+    tree_roots = roots
+    window_match = "application"
+    window_candidates = []
+    if title_terms:
+        exact_roots = []
+        pid_window_roots = []
+        for root in roots:
+            matched_roots, window_roots, candidates = find_accessible_window_roots(root, title_terms)
+            window_candidates.extend(candidates)
+            exact_roots.extend(matched_roots)
+            pid_window_roots.extend(window_roots)
+        if exact_roots:
+            tree_roots = exact_roots
+            window_match = "exact-title"
+        elif len(pid_window_roots) == 1:
+            tree_roots = pid_window_roots
+            window_match = "unique-pid-window"
+        else:
+            raise ValueError(
+                "no AT-SPI window matched KWin window title "
+                f"terms={title_terms} same_pid_window_count={len(pid_window_roots)} "
+                f"candidates={window_candidates[:16]}"
+            )
+    if look_store is None:
+        look_store = AccessibilityLookStore()
+    if root_identity is None:
+        root_identity = f"window:{target_window.get('id', '')}:desktop-pid:{target_pid}"
+    look_id = look_store.begin(root_identity)
     nodes = []
-    for root in roots:
-        walk_accessible(root, nodes, 0, max_depth, max_nodes, title_filter)
+    for root in tree_roots:
+        walk_accessible(root, nodes, 0, max_depth, max_nodes, look_store, look_id)
         if len(nodes) >= max_nodes:
             break
     return {
         "backend": "at-spi",
+        "look_id": look_id,
+        "target_window": public_window(target_window, "summary") if target_window else None,
+        "matched_app_count": len(roots),
+        "matched_window_count": len(tree_roots),
+        "window_match": window_match,
         "nodes": nodes,
         "truncated": len(nodes) >= max_nodes,
     }
 
 
-def walk_accessible(accessible, nodes, depth, max_depth, max_nodes, title_filter):
+def accessibility_target_pid(window):
+    try:
+        return int(window.get("pid", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def accessibility_title_terms(window):
+    terms = []
+    target_title = window_title(window)
+    add_accessibility_term(terms, target_title)
+    return terms
+
+
+def add_accessibility_term(terms, value):
+    if value is None:
+        return
+    text = str(value).strip()
+    if not text:
+        return
+    normalized = normalized_accessible_text(text)
+    if normalized and normalized not in terms:
+        terms.append(normalized)
+
+
+def find_accessible_window_roots(root, title_terms):
+    matches = []
+    window_roots = []
+    candidates = []
+    seen = set()
+
+    def visit(accessible, depth):
+        if depth > 3:
+            return
+        name = safe_attr(accessible, "name")
+        role = safe_call(accessible, "getRoleName") or ""
+        if name and is_accessible_window_role(role):
+            label = accessible_label(accessible)
+            candidates.append(label)
+            window_roots.append(accessible)
+            if any(accessible_title_matches(name, term) for term in title_terms):
+                marker = id(accessible)
+                if marker not in seen:
+                    seen.add(marker)
+                    matches.append(accessible)
+        try:
+            child_count = int(accessible.childCount)
+        except Exception:
+            child_count = 0
+        for index in range(child_count):
+            try:
+                visit(accessible.getChildAtIndex(index), depth + 1)
+            except Exception:
+                continue
+
+    visit(root, 0)
+    return matches, window_roots, candidates
+
+
+def is_accessible_window_role(role):
+    normalized = str(role).strip().lower()
+    return normalized in ("frame", "dialog", "window", "alert")
+
+
+def accessible_title_matches(name, term):
+    return normalized_accessible_text(name) == normalized_accessible_text(term)
+
+
+def normalized_accessible_text(value):
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def accessible_label(accessible):
+    role = safe_call(accessible, "getRoleName") or ""
+    name = safe_attr(accessible, "name")
+    description = safe_attr(accessible, "description")
+    return f"pid={accessible_process_id(accessible)} role={role} name={name} description={description}"
+
+
+def accessible_process_id(accessible):
+    try:
+        return int(accessible.get_process_id())
+    except Exception:
+        return 0
+
+
+def walk_accessible(accessible, nodes, depth, max_depth, max_nodes, look_store=None, look_id=None):
     if len(nodes) >= max_nodes or depth > max_depth:
         return
     name = safe_attr(accessible, "name")
     role = safe_call(accessible, "getRoleName") or ""
-    if title_filter and depth <= 1 and not lower_contains(name, title_filter):
-        pass
+    capabilities = accessible_capabilities(accessible)
     node = {
         "depth": depth,
         "name": name,
         "role": role,
         "description": safe_attr(accessible, "description"),
         "states": accessible_states(accessible),
-        "bounds": accessible_bounds(accessible),
+        "bounds": accessible_bounds(accessible, AT_SPI_COORD_TYPE_SCREEN),
+        "backend_window_bounds": accessible_bounds(accessible, AT_SPI_COORD_TYPE_WINDOW),
+        "capabilities": capabilities,
     }
+    if look_store is not None and look_id is not None:
+        node["wire_ref"] = look_store.bind(look_id, "atspi", accessible, capabilities)
     text = accessible_text(accessible)
     if text:
         node["text"] = text
+    value = accessible_value(accessible)
+    if value is not None:
+        node["value"] = value
+    selection = accessible_selection(accessible)
+    if selection:
+        node["selection"] = selection
     actions = accessible_actions(accessible)
     if actions:
         node["actions"] = actions
@@ -2406,7 +3541,7 @@ def walk_accessible(accessible, nodes, depth, max_depth, max_nodes, title_filter
             return
         try:
             child = accessible.getChildAtIndex(index)
-            walk_accessible(child, nodes, depth + 1, max_depth, max_nodes, None)
+            walk_accessible(child, nodes, depth + 1, max_depth, max_nodes, look_store, look_id)
         except Exception:
             continue
 
@@ -2428,20 +3563,18 @@ def safe_call(obj, name):
 
 def accessible_states(accessible):
     try:
+        import pyatspi
+
         state = accessible.getState()
-        names = []
-        for attr in dir(state):
-            if not attr.startswith("contains"):
-                continue
-        return [str(item) for item in state.getStates()]
+        return [str(pyatspi.stateToString(item)) for item in state.getStates()]
     except Exception:
         return []
 
 
-def accessible_bounds(accessible):
+def accessible_bounds(accessible, coordinate_type=AT_SPI_COORD_TYPE_SCREEN):
     try:
         component = accessible.queryComponent()
-        x, y, width, height = component.getExtents(0)
+        x, y, width, height = component.getExtents(coordinate_type)
         return {"x": x, "y": y, "width": width, "height": height}
     except Exception:
         return None
@@ -2464,25 +3597,79 @@ def accessible_actions(accessible):
         return []
 
 
+def accessible_value(accessible):
+    try:
+        return native(accessible.queryValue().currentValue)
+    except Exception:
+        return None
+
+
+def accessible_selection(accessible):
+    try:
+        selection = accessible.querySelection()
+        selected = []
+        for index in range(int(selection.nSelectedChildren)):
+            child = selection.getSelectedChild(index)
+            selected.append({"name": safe_attr(child, "name"), "role": safe_call(child, "getRoleName") or ""})
+        return selected
+    except Exception:
+        return []
+
+
+def accessible_capabilities(accessible):
+    capabilities = []
+    for name, query in (
+        ("action", "queryAction"),
+        ("editable_text", "queryEditableText"),
+        ("text", "queryText"),
+        ("value", "queryValue"),
+        ("selection", "querySelection"),
+        ("component", "queryComponent"),
+    ):
+        try:
+            getattr(accessible, query)()
+            capabilities.append(name)
+        except Exception:
+            pass
+    return capabilities
+
+
 def main():
     broker = Broker()
+    output_lock = threading.Lock()
+    executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="computer-use")
+
+    def respond(payload):
+        with output_lock:
+            print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+    def process_request(request):
+        request_id = request.get("id")
+        try:
+            result = broker.handle(request.get("method"), request.get("params") or {})
+            respond({"id": request_id, "ok": True, "result": result})
+        except Exception as error:
+            traceback.print_exc(file=sys.stderr)
+            respond({"id": request_id, "ok": False, "error": str(error)})
+
+    def terminate(signum, frame):
+        del frame
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGINT, terminate)
+    signal.signal(signal.SIGTERM, terminate)
     try:
         for line in sys.stdin:
             if not line.strip():
                 continue
             request = json.loads(line)
-            request_id = request.get("id")
-            try:
-                result = broker.handle(request.get("method"), request.get("params") or {})
-                print(json.dumps({"id": request_id, "ok": True, "result": result}, ensure_ascii=False), flush=True)
-            except Exception as error:
-                traceback.print_exc(file=sys.stderr)
-                print(json.dumps({"id": request_id, "ok": False, "error": str(error)}, ensure_ascii=False), flush=True)
+            executor.submit(process_request, request)
     finally:
         try:
             broker.stop()
         except Exception as error:
             traceback.print_exc(file=sys.stderr)
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

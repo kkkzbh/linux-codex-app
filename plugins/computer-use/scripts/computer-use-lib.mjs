@@ -2,9 +2,18 @@ import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  COMPUTER_USE_PROTOCOL_VERSION,
+  ResourceScheduler,
+  RootStore,
+  StateStore,
+  expandState,
+  inspectState,
+  observationDiff,
+  searchState,
+} from "./computer-use-state.mjs";
 
 const DEFAULT_BROKER_TIMEOUT_MS = 120_000;
-const DEFAULT_INPUT_TIMEOUT_MS = 180_000;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const brokerScript = path.join(scriptDir, "computer-use-broker.py");
 const DESKTOP_SESSION_ENV_KEYS = [
@@ -22,355 +31,253 @@ const DESKTOP_SESSION_ENV_KEYS = [
   "XDG_SESSION_TYPE",
 ];
 
-const BUTTONS = ["left", "middle", "right"];
-const TYPE_METHODS = ["auto", "clipboard", "keysyms"];
-const OBSERVE_BACKENDS = ["direct", "portal", "auto"];
+const SESSION_PROPERTY = {
+  type: "string",
+  description: "Route the operation through a Ready isolated session. Omit for the user's foreground desktop.",
+};
+const TIMEOUT_PROPERTY = {
+  type: "integer",
+  minimum: 100,
+  maximum: 300000,
+  default: DEFAULT_BROKER_TIMEOUT_MS,
+};
+const STATE_PROPERTY = { type: "string", pattern: "^state-[0-9]+$" };
+const ROOT_PROPERTY = { type: "string", pattern: "^@r[0-9]+$" };
+const ELEMENT_PROPERTY = { type: "string", pattern: "^@e[0-9]+$" };
+const FOREGROUND_REASON_PROPERTY = {
+  type: "string",
+  minLength: 1,
+  description: "Concrete reason this operation requires the user's existing foreground desktop state.",
+};
+const RESPONSE_PROPERTY = {
+  type: "string",
+  enum: ["compact", "full"],
+  default: "compact",
+  description: "Return compact successor metadata by default; full includes the complete cached outline.",
+};
+
+const EXPECT_SCHEMA = {
+  type: "object",
+  properties: {
+    ref: {
+      ...ELEMENT_PROPERTY,
+      description: "Scope the expectation to one element. Omit ref with gone to target root/window presence.",
+    },
+    text: { type: "string" },
+    role: { type: "string" },
+    value: {},
+    gone: {
+      type: "boolean",
+      description: "With ref, require that element's presence state. Without ref, require the exact root/window presence state.",
+    },
+    timeout_ms: { type: "integer", minimum: 0, maximum: 120000, default: 5000 },
+  },
+  additionalProperties: false,
+};
 
 export const COMPUTER_USE_TOOLS = [
   {
-    name: "computer_begin_round",
-    title: "Begin Round",
-    description: "Start a Computer Use round, enabling cursor glow and grouping virtual desktop moves until the round ends.",
+    name: "isolated_start",
+    title: "Start Isolated Session",
+    description: "Start a self-owned KWin virtual GUI/profile-isolated session with private Wayland, Xwayland, D-Bus, AT-SPI, HOME, and XDG directories.",
     inputSchema: {
       type: "object",
       properties: {
-        glow: { type: "boolean", description: "Enable the cursor glow overlay for this round.", default: true },
+        screen_width: { type: "integer", minimum: 320, maximum: 7680, default: 1280 },
+        screen_height: { type: "integer", minimum: 240, maximum: 4320, default: 800 },
+        timeout_ms: { type: "integer", minimum: 5000, maximum: 300000, default: 60000 },
       },
       additionalProperties: false,
     },
   },
   {
-    name: "computer_end_round",
-    title: "End Round",
-    description: "End the current Computer Use round, stop cursor glow, and restore windows moved to KDE virtual desktop 1.",
+    name: "isolated_stop",
+    title: "Stop Isolated Session",
+    description: "Stop the isolated session and its transient systemd user-scope cgroup.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        session_id: { type: "string", description: "Session id returned by isolated_start." },
+        force: { type: "boolean", default: false },
+        timeout_ms: { type: "integer", minimum: 1000, maximum: 30000, default: 15000 },
+      },
+      required: ["session_id"],
       additionalProperties: false,
     },
   },
   {
-    name: "computer_observe",
-    title: "Observe Desktop",
-    description: "Capture the currently visible KDE Wayland desktop. The default direct backend uses KWin ScreenShot2 without portal prompts.",
+    name: "isolated_status",
+    title: "Get Isolated Session Status",
+    description: "Return the isolated SessionSupervisor state.",
+    inputSchema: {
+      type: "object",
+      properties: { session_id: { type: "string" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "find_roots",
+    title: "Find UI Roots",
+    description: "Discover exact roots in an isolated session by default. Foreground discovery requires a concrete foreground_reason.",
     inputSchema: {
       type: "object",
       properties: {
-        include_image: { type: "boolean", description: "Return a base64 PNG screenshot.", default: true },
-        include_windows: { type: "boolean", description: "Include KWin window metadata with the screenshot.", default: true },
-        crop: {
-          type: "object",
-          description: "Optional compositor-coordinate crop rectangle.",
-          properties: {
-            x: { type: "number" },
-            y: { type: "number" },
-            width: { type: "number", minimum: 1 },
-            height: { type: "number", minimum: 1 },
+        session_id: SESSION_PROPERTY,
+        foreground_reason: FOREGROUND_REASON_PROPERTY,
+        kind: { type: "string", enum: ["window", "application", "tray_item", "all"], default: "window" },
+        query: { type: "string", description: "Case-insensitive name, title, executable, desktop id, or class query." },
+        include_special: { type: "boolean", default: false },
+        include_minimized: { type: "boolean", default: true },
+        include_hidden: { type: "boolean", default: false },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        timeout_ms: TIMEOUT_PROPERTY,
+      },
+      oneOf: [
+        { required: ["session_id"], not: { required: ["foreground_reason"] } },
+        { required: ["foreground_reason"], not: { required: ["session_id"] } },
+      ],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "observe_ui",
+    title: "Observe UI",
+    description: "Create a state-scoped accessibility outline and optional target-window image for one exact root.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: SESSION_PROPERTY,
+        rootRef: ROOT_PROPERTY,
+        include_image: { type: "boolean", default: true },
+        max_depth: { type: "integer", minimum: 1, maximum: 20, default: 8 },
+        max_nodes: { type: "integer", minimum: 1, maximum: 2000, default: 500 },
+        timeout_ms: TIMEOUT_PROPERTY,
+      },
+      required: ["rootRef"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_ui",
+    title: "Search UI State",
+    description: "Search the full cached outline of one observation without touching the live desktop.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: SESSION_PROPERTY,
+        stateId: STATE_PROPERTY,
+        query: { type: "string", minLength: 1 },
+        roles: { type: "array", items: { type: "string" }, default: [] },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 25 },
+      },
+      required: ["stateId", "query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "expand_ui",
+    title: "Expand UI Element",
+    description: "Return descendants of an element from the full cached outline.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: SESSION_PROPERTY,
+        stateId: STATE_PROPERTY,
+        ref: ELEMENT_PROPERTY,
+        depth: { type: "integer", minimum: 1, maximum: 20, default: 1 },
+      },
+      required: ["stateId", "ref"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "inspect_ui",
+    title: "Inspect UI Element",
+    description: "Inspect one exact element from a cached observation.",
+    inputSchema: {
+      type: "object",
+      properties: { session_id: SESSION_PROPERTY, stateId: STATE_PROPERTY, ref: ELEMENT_PROPERTY },
+      required: ["stateId", "ref"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "act_ui",
+    title: "Act on UI",
+    description: "Validate state, execute semantic or foreground actions in one resource transaction, verify a postcondition, cache the complete successor, and return compact successor metadata by default.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: SESSION_PROPERTY,
+        stateId: STATE_PROPERTY,
+        policy: { type: "string", enum: ["semantic_only", "auto", "foreground"], default: "auto" },
+        actions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 32,
+          items: {
+            type: "object",
+            properties: {
+              op: { type: "string", enum: ["press", "click", "set_text", "type_text", "key", "scroll", "drag"] },
+              ref: ELEMENT_PROPERTY,
+              x: { type: "number" },
+              y: { type: "number" },
+              to_x: { type: "number" },
+              to_y: { type: "number" },
+              text: { type: "string" },
+              key: { type: "string" },
+              modifiers: { type: "array", items: { type: "string", enum: ["ctrl", "alt", "shift", "meta"] }, default: [] },
+              button: { type: "string", enum: ["left", "middle", "right"], default: "left" },
+              count: { type: "integer", minimum: 1, maximum: 5, default: 1 },
+              dx: { type: "number", default: 0 },
+              dy: { type: "number", default: 0 },
+            },
+            required: ["op"],
+            additionalProperties: false,
           },
-          required: ["x", "y", "width", "height"],
-          additionalProperties: false,
         },
-        timeout_ms: {
-          type: "integer",
-          minimum: 1000,
-          maximum: 300000,
-          description: "Maximum time to wait for the selected backend and frame capture.",
-          default: DEFAULT_INPUT_TIMEOUT_MS,
-        },
-        backend: {
-          type: "string",
-          enum: OBSERVE_BACKENDS,
-          description: "Screenshot backend. direct uses owner-authorized KWin ScreenShot2; portal uses KDE RemoteDesktop.",
-          default: "direct",
-        },
-        allow_portal_fallback: {
-          type: "boolean",
-          description: "Allow auto mode to fall back to XDG portal prompts if the direct backend is not configured.",
-          default: false,
-        },
+        expect: EXPECT_SCHEMA,
+        include_image: { type: "boolean", default: true },
+        response: RESPONSE_PROPERTY,
+        timeout_ms: TIMEOUT_PROPERTY,
       },
+      required: ["stateId", "actions"],
       additionalProperties: false,
     },
   },
   {
-    name: "computer_list_desktops",
-    title: "List Desktops",
-    description: "List KDE Wayland virtual desktops and the current desktop.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_list_apps",
-    title: "List Apps",
-    description: "List launchable desktop apps from .desktop metadata for use with computer_open_app.",
+    name: "read_text",
+    title: "Read UI Text",
+    description: "Read text or value through the exact AT-SPI wire ref bound to a current state.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Optional case-insensitive app name, desktop id, executable, or StartupWMClass filter." },
-        include_hidden: { type: "boolean", description: "Include Hidden or NoDisplay desktop entries.", default: false },
-        limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum number of apps to return.", default: 50 },
+        session_id: SESSION_PROPERTY,
+        stateId: STATE_PROPERTY,
+        ref: ELEMENT_PROPERTY,
+        start: { type: "integer", minimum: 0, default: 0 },
+        end: { type: "integer", minimum: -1, default: -1 },
+        timeout_ms: TIMEOUT_PROPERTY,
       },
+      required: ["stateId", "ref"],
       additionalProperties: false,
     },
   },
   {
-    name: "computer_list_tray_items",
-    title: "List Tray Items",
-    description: "List KDE StatusNotifierItem system tray entries for tray-hidden apps such as chat clients.",
+    name: "wait_for",
+    title: "Wait for UI",
+    description: "Wait on the root event journal, confirm an exact condition with a fresh observation, cache the complete successor, and return compact successor metadata by default.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Optional case-insensitive tray item id, title, icon, service, or tooltip filter." },
-        include_errors: { type: "boolean", description: "Include stale or unreadable tray item DBus errors.", default: false },
-        limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum number of tray items to return.", default: 50 },
+        session_id: SESSION_PROPERTY,
+        stateId: STATE_PROPERTY,
+        expect: EXPECT_SCHEMA,
+        include_image: { type: "boolean", default: true },
+        response: RESPONSE_PROPERTY,
+        timeout_ms: { type: "integer", minimum: 0, maximum: 120000, default: 5000 },
       },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_list_windows",
-    title: "List Windows",
-    description: "List KDE Wayland windows with virtual desktop metadata using KWin scripting.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string", description: "Optional case-insensitive app/window class filter." },
-        include_special: { type: "boolean", description: "Include desktop, dock, and special windows.", default: false },
-        include_minimized: { type: "boolean", description: "Include minimized windows.", default: true },
-        detail: {
-          type: "string",
-          enum: ["summary", "full"],
-          description: "Window metadata detail. summary is token-lean and sufficient for activation; full returns raw KWin fields.",
-          default: "summary",
-        },
-        limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum number of windows to return.", default: 50 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_open_app",
-    title: "Open App",
-    description: "Launch an installed desktop app from .desktop metadata, then optionally return matching windows.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "App name, executable, desktop id, or StartupWMClass to search for." },
-        desktop_id: { type: "string", description: "Exact desktop entry id, such as org.kde.dolphin.desktop." },
-        args: {
-          type: "array",
-          items: { type: "string" },
-          description: "Additional app arguments appended after desktop Exec field expansion.",
-          default: [],
-        },
-        activate: { type: "boolean", description: "Try to activate a matching window after launch.", default: true },
-        reuse_existing: {
-          type: "boolean",
-          description: "Activate an existing matching window or tray item instead of launching a new process when one is already present.",
-          default: false,
-        },
-        wait_ms: {
-          type: "integer",
-          minimum: 0,
-          maximum: 30000,
-          description: "Delay before listing windows after launch.",
-          default: 1000,
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_activate_tray_item",
-    title: "Activate Tray Item",
-    description: "Activate a KDE StatusNotifierItem system tray entry to restore a tray-hidden foreground app without coordinate guessing.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Case-insensitive tray item id, title, icon, service, or tooltip filter." },
-        item_ref: { type: "string", description: "Exact StatusNotifierItem ref returned by computer_list_tray_items." },
-        service: { type: "string", description: "Exact DBus service returned by computer_list_tray_items." },
-        path: { type: "string", description: "Exact DBus object path returned by computer_list_tray_items." },
-        action: {
-          type: "string",
-          enum: ["activate", "secondary_activate", "context_menu"],
-          description: "StatusNotifierItem action to invoke.",
-          default: "activate",
-        },
-        x: { type: "integer", description: "Anchor x coordinate for the tray item action.", default: 0 },
-        y: { type: "integer", description: "Anchor y coordinate for the tray item action.", default: 0 },
-        wait_ms: {
-          type: "integer",
-          minimum: 0,
-          maximum: 10000,
-          description: "Delay after tray activation.",
-          default: 500,
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_activate_window",
-    title: "Activate Window",
-    description: "Bring a KDE Wayland window to the foreground using KWin scripting.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        window_id: { type: "string", description: "Window id returned by computer_list_windows." },
-        index: { type: "integer", minimum: 0, description: "Window list index when no id is available." },
-        app: { type: "string", description: "Case-insensitive app/window class filter." },
-        title: { type: "string", description: "Case-insensitive window title filter." },
-        wait_ms: {
-          type: "integer",
-          minimum: 0,
-          maximum: 10000,
-          description: "Delay after activation.",
-          default: 300,
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_click",
-    title: "Click",
-    description: "Move the pointer and click on the foreground KDE Wayland desktop through the pre-authorized RemoteDesktop portal.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        x: { type: "number", description: "Visible desktop x coordinate from computer_observe." },
-        y: { type: "number", description: "Visible desktop y coordinate from computer_observe." },
-        button: { type: "string", enum: BUTTONS, description: "Pointer button.", default: "left" },
-        count: { type: "integer", minimum: 1, maximum: 5, description: "Click count.", default: 1 },
-        interval_ms: { type: "integer", minimum: 0, maximum: 2000, description: "Delay between repeated clicks.", default: 120 },
-        animation_ms: { type: "integer", minimum: 0, maximum: 2000, description: "Pointer movement animation duration before the click.", default: 220 },
-        animation_steps: { type: "integer", minimum: 2, maximum: 80, description: "Pointer movement interpolation steps before the click." },
-      },
-      required: ["x", "y"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_drag",
-    title: "Drag",
-    description: "Drag from one foreground desktop coordinate to another through the pre-authorized RemoteDesktop portal.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        x: { type: "number", description: "Start x coordinate from computer_observe." },
-        y: { type: "number", description: "Start y coordinate from computer_observe." },
-        to_x: { type: "number", description: "End x coordinate from computer_observe." },
-        to_y: { type: "number", description: "End y coordinate from computer_observe." },
-        button: { type: "string", enum: BUTTONS, description: "Pointer button.", default: "left" },
-        duration_ms: { type: "integer", minimum: 1, maximum: 10000, description: "Drag duration.", default: 500 },
-        steps: { type: "integer", minimum: 2, maximum: 200, description: "Motion interpolation steps.", default: 20 },
-      },
-      required: ["x", "y", "to_x", "to_y"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_scroll",
-    title: "Scroll",
-    description: "Scroll the foreground desktop at an optional coordinate through the pre-authorized RemoteDesktop portal.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        x: { type: "number", description: "Optional x coordinate from computer_observe to move to before scrolling." },
-        y: { type: "number", description: "Optional y coordinate from computer_observe to move to before scrolling." },
-        dx: { type: "number", description: "Horizontal smooth-scroll delta.", default: 0 },
-        dy: { type: "number", description: "Vertical smooth-scroll delta.", default: 0 },
-        steps: { type: "integer", minimum: 1, maximum: 100, description: "Repeat count.", default: 1 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_key",
-    title: "Press Key",
-    description: "Send a key or key chord to the foreground KDE Wayland desktop through the pre-authorized RemoteDesktop portal.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Key name or single character, such as enter, escape, a, F5." },
-        modifiers: {
-          type: "array",
-          items: { type: "string", enum: ["ctrl", "alt", "shift", "meta"] },
-          description: "Modifier keys pressed around the key.",
-          default: [],
-        },
-        repeat: { type: "integer", minimum: 1, maximum: 100, description: "Number of times to press the key.", default: 1 },
-      },
-      required: ["key"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_type",
-    title: "Type Text",
-    description: "Type or paste text into the foreground app through the pre-authorized RemoteDesktop portal.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        text: { type: "string", description: "Text to enter into the foreground app." },
-        method: { type: "string", enum: TYPE_METHODS, description: "Text entry method.", default: "auto" },
-        submit: { type: "boolean", description: "Press Enter after text entry.", default: false },
-      },
-      required: ["text"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_release_desktops",
-    title: "Release Desktops",
-    description: "Compatibility alias for ending the current Computer Use round and restoring moved KDE virtual desktops.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_wait",
-    title: "Wait",
-    description: "Wait for the foreground desktop to settle and optionally return a fresh KDE Wayland desktop observation.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        ms: { type: "integer", minimum: 0, maximum: 120000, description: "Milliseconds to wait.", default: 1000 },
-        observe: { type: "boolean", description: "Return computer_observe output after waiting.", default: false },
-        backend: {
-          type: "string",
-          enum: OBSERVE_BACKENDS,
-          description: "Screenshot backend used only when observe is true.",
-          default: "direct",
-        },
-        allow_portal_fallback: {
-          type: "boolean",
-          description: "Allow auto mode to fall back to XDG portal prompts when observe is true.",
-          default: false,
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "computer_get_accessibility_tree",
-    title: "Get Accessibility Tree",
-    description: "Read a bounded AT-SPI accessibility tree from the active or selected foreground window.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        window_id: { type: "string", description: "Optional window id returned by computer_list_windows." },
-        app: { type: "string", description: "Optional app/window class filter." },
-        title: { type: "string", description: "Optional title filter." },
-        max_depth: { type: "integer", minimum: 1, maximum: 12, description: "Maximum tree depth.", default: 5 },
-        max_nodes: { type: "integer", minimum: 1, maximum: 1000, description: "Maximum nodes to return.", default: 200 },
-      },
+      required: ["stateId", "expect"],
       additionalProperties: false,
     },
   },
@@ -385,7 +292,81 @@ export function createComputerUseController(deps = {}) {
     brokerScript: deps.brokerScript ?? brokerScript,
     timeoutMs: deps.timeoutMs ?? DEFAULT_BROKER_TIMEOUT_MS,
   };
-  const broker = new BrokerClient(context);
+  const broker = deps.broker ?? new BrokerClient(context);
+  const roots = new RootStore();
+  const states = new StateStore();
+  const scheduler = new ResourceScheduler();
+
+  function requireState(args) {
+    const state = states.require(args.stateId);
+    if (args.session_id != null && state.sessionId !== args.session_id) {
+      throw new Error(`state ${state.stateId} belongs to session ${state.sessionId ?? "foreground"}`);
+    }
+    return state;
+  }
+
+  function scopedExpect(state, expect) {
+    if (expect == null) {
+      return null;
+    }
+    const scoped = { ...expect, wire_ref: states.wireRef(state, expect.ref, true) };
+    delete scoped.ref;
+    return scoped;
+  }
+
+  function rootRouting(args) {
+    if (args.session_id != null) {
+      if (args.foreground_reason != null) {
+        throw new Error("foreground_reason cannot be combined with session_id");
+      }
+      return { target: "isolated" };
+    }
+    const reason = typeof args.foreground_reason === "string" ? args.foreground_reason.trim() : "";
+    if (!reason) {
+      throw new Error(
+        "foreground root discovery requires foreground_reason; use isolated_start when the task does not require the user's existing desktop state",
+      );
+    }
+    return { target: "foreground", reason };
+  }
+
+  function successorObservation(state, response) {
+    if (response === "full") {
+      return state.observation;
+    }
+    const observation = state.observation;
+    const compact = {
+      stateId: observation.stateId,
+      rootRef: observation.rootRef,
+      resourceKey: observation.resourceKey,
+      epoch: observation.epoch,
+      coordinateSpace: observation.coordinateSpace,
+      capturedAt: observation.capturedAt,
+      root: observation.root,
+      window: observation.window,
+      outline: {
+        nodeCount: observation.outline.nodes.length,
+        truncated: observation.outline.truncated,
+      },
+    };
+    if (observation.image != null) {
+      compact.image = observation.image;
+    }
+    return compact;
+  }
+
+  async function observeRoot(root, args, epoch) {
+    const timeoutMs = args.timeout_ms ?? context.timeoutMs;
+    const observation = await broker.call("observe_root", {
+      session_id: root.sessionId,
+      root: root.backend,
+      include_image: args.include_image ?? true,
+      max_depth: args.max_depth,
+      max_nodes: args.max_nodes,
+      timeout_ms: args.timeout_ms,
+    }, timeoutMs + 2000);
+    return states.save(root, epoch, observation);
+  }
 
   return {
     tools: COMPUTER_USE_TOOLS,
@@ -394,7 +375,107 @@ export function createComputerUseController(deps = {}) {
         throw new Error(`Unknown Computer Use tool: ${name}`);
       }
       const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : context.timeoutMs;
-      return await broker.call(name, args, timeoutMs);
+      if (name === "isolated_start" || name === "isolated_status") {
+        return await broker.call(name, args, timeoutMs + 2000);
+      }
+      if (name === "isolated_stop") {
+        const result = await broker.call(name, args, timeoutMs + 2000);
+        roots.deleteSession(args.session_id);
+        states.deleteSession(args.session_id);
+        return result;
+      }
+      if (name === "find_roots") {
+        const routing = rootRouting(args);
+        const brokerArgs = { ...args };
+        delete brokerArgs.foreground_reason;
+        const result = await broker.call("find_roots", brokerArgs, timeoutMs + 2000);
+        if (result.protocol_version !== COMPUTER_USE_PROTOCOL_VERSION) {
+          throw new Error(`backend protocol mismatch: expected ${COMPUTER_USE_PROTOCOL_VERSION}`);
+        }
+        const routedRoots = result.roots.map((root) => ({ ...root, routing }));
+        const publicRoots = roots.registerMany(routedRoots, args.session_id ?? null);
+        return { protocolVersion: COMPUTER_USE_PROTOCOL_VERSION, roots: publicRoots, count: publicRoots.length };
+      }
+      if (name === "observe_ui") {
+        const root = roots.require(args.rootRef, args.session_id);
+        return await scheduler.read(root.backend.resource_key, async () => {
+          const epoch = scheduler.epoch(root.backend.resource_key);
+          return (await observeRoot(root, args, epoch)).observation;
+        });
+      }
+      if (name === "search_ui") {
+        return searchState(requireState(args), args);
+      }
+      if (name === "expand_ui") {
+        return expandState(requireState(args), args.ref, args.depth ?? 1);
+      }
+      if (name === "inspect_ui") {
+        return inspectState(requireState(args), args.ref);
+      }
+      if (name === "read_text") {
+        const state = requireState(args);
+        scheduler.assertCurrent(state.resourceKey, state.epoch);
+        return await scheduler.read(state.resourceKey, () => broker.call("read_text", {
+          session_id: state.sessionId,
+          root: state.backendRoot,
+          look_id: state.lookId,
+          wire_ref: states.wireRef(state, args.ref),
+          start: args.start ?? 0,
+          end: args.end ?? -1,
+          timeout_ms: args.timeout_ms,
+        }, timeoutMs + 2000));
+      }
+      if (name === "act_ui") {
+        const state = requireState(args);
+        const actions = args.actions.map((action) => {
+          const scoped = { ...action, wire_ref: states.wireRef(state, action.ref, true) };
+          delete scoped.ref;
+          return scoped;
+        });
+        return await scheduler.mutate(state.resourceKey, state.epoch, async (successorEpoch) => {
+          const result = await broker.call("act_transaction", {
+            session_id: state.sessionId,
+            root: state.backendRoot,
+            look_id: state.lookId,
+            actions,
+            expect: scopedExpect(state, args.expect),
+            policy: args.policy ?? "auto",
+            include_image: args.include_image ?? true,
+            timeout_ms: args.timeout_ms,
+          }, timeoutMs + 2000);
+          const root = roots.require(state.rootRef, state.sessionId);
+          const successor = states.save(root, successorEpoch, result.observation);
+          return {
+            outcome: result.outcome,
+            evidence: result.evidence,
+            diff: observationDiff(state, successor),
+            observation: successorObservation(successor, args.response ?? "compact"),
+          };
+        });
+      }
+      if (name === "wait_for") {
+        const state = requireState(args);
+        scheduler.assertCurrent(state.resourceKey, state.epoch);
+        return await scheduler.read(state.resourceKey, async () => {
+          const result = await broker.call("wait_for", {
+            session_id: state.sessionId,
+            root: state.backendRoot,
+            look_id: state.lookId,
+            expect: scopedExpect(state, args.expect),
+            include_image: args.include_image ?? true,
+            timeout_ms: args.timeout_ms,
+          }, timeoutMs + 2000);
+          const root = roots.require(state.rootRef, state.sessionId);
+          const successor = states.save(root, state.epoch, result.observation);
+          return {
+            outcome: result.outcome,
+            evidence: result.evidence,
+            diff: observationDiff(state, successor),
+            observation: successorObservation(successor, args.response ?? "compact"),
+          };
+        });
+      }
+      throw new Error(`Computer Use controller has no implementation for ${name}`);
     },
     stop() {
       broker.stop();
@@ -490,9 +571,7 @@ class BrokerClient {
   call(method, params, timeoutMs) {
     this.ensureStarted();
     const id = this.nextId++;
-    const payload = JSON.stringify({ id, method, params });
-    this.child.stdin.write(`${payload}\n`);
-
+    this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -506,7 +585,6 @@ class BrokerClient {
     if (this.child != null && !this.child.killed) {
       return;
     }
-
     this.stderr = "";
     this.buffer = "";
     this.child = this.context.spawnProcess(this.context.python, [this.context.brokerScript], {
@@ -562,10 +640,9 @@ class BrokerClient {
   }
 
   stop() {
-    if (this.child == null) {
-      return;
+    if (this.child != null) {
+      this.child.kill();
+      this.child = null;
     }
-    this.child.kill();
-    this.child = null;
   }
 }

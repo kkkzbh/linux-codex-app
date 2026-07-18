@@ -1,7 +1,7 @@
 {
   "name": "kde-computer-use",
-  "version": "0.1.0",
-  "description": "KDE Wayland foreground Computer Use tools for Codex, using KWin metadata, KWin ScreenShot2 observation, KDE StatusNotifierItem tray activation, and KDE RemoteDesktop portal input.",
+  "version": "2.1.1+codex.20260716",
+  "description": "Isolated-default, state-scoped KDE Wayland Computer Use with justified foreground access, AT-SPI semantics, and transactional actions.",
   "author": {
     "name": "Codex Linux Installer"
   },
@@ -19,8 +19,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Computer Use",
-    "shortDescription": "Observe and control the foreground KDE Wayland desktop",
-    "longDescription": "Computer Use gives Codex owner-authorized foreground control on KDE Wayland. It observes the visible desktop through KWin ScreenShot2 or the KDE RemoteDesktop portal, lists virtual desktops and windows through KWin scripting, restores tray-hidden apps through KDE StatusNotifierItem DBus activation, and injects pointer and keyboard input through the pre-authorized KDE RemoteDesktop portal. It does not implement background clicking or hidden per-app control.",
+    "shortDescription": "Use state-scoped AT-SPI and transactional actions on KDE Wayland",
+    "longDescription": "Computer Use v2 gives Codex one state-scoped protocol across foreground and isolated KDE Wayland targets. Observations bind exact roots, epochs, window-image coordinates, and AT-SPI refs. Transactions prefer semantic Action and EditableText interfaces, verify postconditions, and use a focus-preserving foreground lease for KDE RemoteDesktop input. Fresh apps can run in a self-owned KWin virtual session with private Wayland, Xwayland, D-Bus, AT-SPI, HOME, XDG directories, ScreenShot2 capture, KWin EIS input, and systemd cgroup lifecycle ownership.",
     "developerName": "Codex Linux Installer",
     "category": "Productivity",
     "capabilities": [
@@ -32,10 +32,11 @@
     "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
     "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
     "defaultPrompt": [
-      "Look at my KDE desktop",
-      "Click the foreground app",
-      "Open an app and operate it",
-      "List visible windows"
+      "Observe an existing KDE window",
+      "Open a fresh app in an isolated session",
+      "Set a field through AT-SPI",
+      "Act on a window and verify the result",
+      "Find visible windows and tray apps"
     ],
     "brandColor": "#0F766E",
     "composerIcon": "./assets/computer-use.png",

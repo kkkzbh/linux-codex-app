@@ -3,7 +3,7 @@ import { ensureMarkersAbsent, ensureMarkersPresent, replaceOrThrow } from "../re
 
 export const settingsSidebarSurfaceFeature = {
   id: "settings-sidebar-surface",
-  version: 1,
+  version: 2,
   requiredMarkers: FEATURE_MARKERS["settings-sidebar-surface"].requiredMarkers,
   forbiddenMarkers: FEATURE_MARKERS["settings-sidebar-surface"].forbiddenMarkers,
   apply(bundleSources) {
@@ -13,8 +13,8 @@ export const settingsSidebarSurfaceFeature = {
 
     const webviewSettingsPage = replaceOrThrow(
       bundleSources.webviewSettingsPage,
-      "q=h(`app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden`,`w-token-sidebar`),J=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full shrink-0`})",
-      "q=h(`app-shell-left-panel window-fx-sidebar-surface pointer-events-auto relative flex min-h-0 shrink-0 flex-col overflow-visible`,`w-token-sidebar`),J=(0,$.jsx)(`div`,{className:`draggable h-toolbar w-full shrink-0`})",
+      "app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden",
+      "app-shell-left-panel window-fx-sidebar-surface relative flex min-h-0 shrink-0 flex-col overflow-hidden",
       "current upstream settings sidebar standalone surface class",
     );
 

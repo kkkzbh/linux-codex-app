@@ -13,7 +13,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const installerRoot = path.dirname(scriptDir);
 const pluginRoot = path.join(installerRoot, "plugins", "dolphin");
 const mcpScript = path.join(pluginRoot, "scripts", "dolphin-mcp.mjs");
-const marketplaceFilterScript = path.join(scriptDir, "filter-bundled-marketplace.mjs");
 const marketplaceAddScript = path.join(scriptDir, "add-local-bundled-marketplace-plugins.mjs");
 const dolphinWindowAccessScript = path.join(scriptDir, "install-dolphin-window-access.sh");
 const pluginValidator = "/home/kkkzbh/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py";
@@ -382,14 +381,13 @@ function readHeaderMessage(stream) {
 function testMarketplaceScripts() {
   const tempDir = makeTempDir("codex-dolphin-marketplace-");
   try {
-    const sourcePath = path.join(tempDir, "source.json");
     const destPath = path.join(tempDir, "dest.json");
     writeFileSync(
-      sourcePath,
+      destPath,
       JSON.stringify({
         name: "openai-bundled",
         interface: { displayName: "OpenAI Bundled" },
-        plugins: ["browser", "chrome", "latex", "computer-use"].map((name) => ({
+        plugins: ["browser", "chrome", "latex"].map((name) => ({
           name,
           source: { source: "local", path: `./plugins/${name}` },
           policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
@@ -398,12 +396,7 @@ function testMarketplaceScripts() {
       }),
     );
 
-    let run = spawnSync(process.execPath, [marketplaceFilterScript, sourcePath, destPath, "browser", "chrome", "latex"], {
-      encoding: "utf8",
-    });
-    assert.equal(run.status, 0, run.stderr);
-
-    run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "dolphin"], { encoding: "utf8" });
+    let run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "dolphin"], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
 
     run = spawnSync(process.execPath, [marketplaceAddScript, destPath, "kde-computer-use=computer-use"], {

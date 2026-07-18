@@ -4,7 +4,7 @@ import { createComputerUseController } from "./computer-use-lib.mjs";
 
 const serverInfo = {
   name: "computer-use",
-  version: "0.1.0",
+  version: "2.1.1",
 };
 
 const controller = createComputerUseController();
@@ -34,16 +34,11 @@ function sendError(id, code, message) {
 }
 
 function toolResult(payload) {
-  const image = payload?.image;
+  const image = payload?.image ?? payload?.observation?.image;
   if (image?.data_base64 && image?.mime_type) {
-    const metadata = {
-      ...payload,
-      image: {
-        ...image,
-        data_base64: undefined,
-      },
-    };
-    delete metadata.image.data_base64;
+    const metadata = structuredClone(payload);
+    const metadataImage = metadata.image ?? metadata.observation?.image;
+    delete metadataImage.data_base64;
     return {
       content: [
         {
@@ -89,7 +84,7 @@ async function handleRequest(message) {
         capabilities: { tools: {} },
         serverInfo,
         instructions:
-          "Use Computer Use tools for KDE Wayland foreground desktop work only when no more specific app plugin is suitable; if the target app has its own Codex plugin or tool surface, use that app-specific plugin first and treat Computer Use as the fallback for unsupported actions or visible UI state. Start a visible operation with computer_begin_round so cursor glow and desktop restore state share one lifecycle; input tools auto-start a round if needed. Screenshot observation defaults to owner-authorized KWin ScreenShot2; foreground pointer and keyboard input uses the pre-authorized KDE RemoteDesktop portal. KWin window tools restore minimized or off-desktop windows; KDE StatusNotifierItem tray tools restore tray-hidden apps without coordinate guessing. Activated and operated windows are held on virtual desktop 1 during the current round. Call computer_end_round when the round ends to stop cursor glow and restore original virtual desktops. These tools do not background-click hidden apps.",
+          "Use an app-specific plugin when it owns the requested operation. For KDE Wayland, isolated Computer Use is the default for every task that does not require the user's existing foreground desktop state: call isolated_start, pass session_id to the shared v2 tools, and finish with isolated_stop. Foreground find_roots is rejected unless foreground_reason states the concrete dependency on an existing user window, unsaved state, live Plasma or tray state, existing GUI login, or a global shortcut. Then call observe_ui and use state-scoped @e refs with inspect_ui, search_ui, expand_ui, read_text, act_ui, and wait_for. A stale state or ref must be observed again.",
       });
       return;
     case "ping":

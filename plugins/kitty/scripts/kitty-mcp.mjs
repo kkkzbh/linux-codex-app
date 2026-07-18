@@ -64,7 +64,7 @@ async function handleRequest(message) {
         capabilities: { tools: {} },
         serverInfo,
         instructions:
-          "Use numbered Kitty terminals for visible Linux terminal work. Use kitty_list to inspect available numbered terminals and windows, kitty_open to open a terminal without sending input, kitty_send with command/text/key for terminal input, and kitty_read for observing the current terminal screen. kitty_open and other open paths are designed not to take desktop focus. kitty_send returns terminal feedback, not process-level exit codes.",
+          "Use the singleton Kitty OS window for visible Linux terminal work. Use kitty_list to inspect tabs and windows, kitty_open to open a new tab without sending input, kitty_send with command/text/key for terminal input, and kitty_read for observing the current terminal screen. Prefer tab selectors such as T3 for human routing and window_id for exact targeting. kitty_send returns terminal feedback, not process-level exit codes.",
       });
       return;
     case "ping":

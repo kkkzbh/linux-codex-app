@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -15,7 +14,6 @@ const MAX_FEEDBACK_DELAY_MS = 5_000;
 const DEFAULT_QUIET_MS = 500;
 const MAX_QUIET_MS = 30_000;
 const SHELL_READY_DELAY_MS = 900;
-const MANAGED_PROCESS_SHUTDOWN_GRACE_MS = 150;
 const REGISTRY_INACTIVE_PROBE_TIMEOUT_MS = 1_500;
 const RUN_POLL_MS = 100;
 const PLACEMENTS = ["current", "window", "tab", "split", "hsplit", "vsplit"];
@@ -24,7 +22,9 @@ const FEEDBACK_MODES = ["screen", "tail", "scrollback", "last_cmd_output"];
 const WAIT_FOR_MODES = ["none", "delay", "change", "quiet", "regex"];
 const LAYOUTS = ["splits", "tall", "stack", "grid", "fat"];
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGKILL"];
-const KWIN_SCRIPT_TIMEOUT_MS = 2_000;
+const SINGLETON_INSTANCE_ID = "ki_singleton_main";
+const SINGLETON_TITLE = "Kitty";
+const TAB_LABEL_MAX = 18;
 const USER_SESSION_ENV_KEYS = [
   "XDG_RUNTIME_DIR",
   "DBUS_SESSION_BUS_ADDRESS",
@@ -43,7 +43,7 @@ export const KITTY_TOOLS = [
   {
     name: "kitty_list",
     title: "List Kitty Terminals",
-    description: "List numbered kitty instances, tabs, and windows so the model can choose a visible terminal target.",
+    description: "List the singleton kitty instance, tabs, and windows so the model can choose a visible terminal target.",
     inputSchema: {
       type: "object",
       properties: {
@@ -59,12 +59,12 @@ export const KITTY_TOOLS = [
   {
     name: "kitty_open",
     title: "Open Kitty Terminal",
-    description: "Open a numbered managed kitty terminal without sending input and return its selector and window metadata.",
+    description: "Open a new tab in the singleton kitty terminal without sending input and return its selector and window metadata.",
     inputSchema: {
       type: "object",
       properties: {
-        short_id: { type: "string", description: "Requested human-visible kitty short id, such as K1. The next available K-number is used when omitted." },
-        title: { type: "string", description: "Visible kitty window title.", default: "Codex Kitty" },
+        short_id: { type: "string", description: "Requested human-visible tab selector, such as T3. The active tab is used when omitted." },
+        title: { type: "string", description: "Visible kitty tab/window title.", default: "Codex Kitty" },
         cwd: { type: "string", description: "Working directory for the opened shell. Defaults to the current Codex workspace." },
         layout: {
           type: "string",
@@ -78,12 +78,12 @@ export const KITTY_TOOLS = [
   {
     name: "kitty_send",
     title: "Send Input to Kitty",
-    description: "Send a shell command, raw text, or key input to a numbered kitty terminal and return terminal feedback.",
+    description: "Send a shell command, raw text, or key input to a singleton kitty tab/window and return terminal feedback.",
     inputSchema: {
       type: "object",
       properties: {
         window_id: { type: "integer", description: "Target kitty window id." },
-        short_id: { type: "string", description: "Human-visible kitty short id, such as K1. Missing targets are created automatically." },
+        short_id: { type: "string", description: "Human-visible tab selector, such as T3. Missing targets use the active tab." },
         command: { type: "string", description: "Shell command to send. A trailing newline is added when missing." },
         text: { type: "string", description: "Raw text to send through kitty send-text." },
         key: { type: "string", description: "Key chord to send, such as ctrl+c, enter, or esc." },
@@ -127,12 +127,12 @@ export const KITTY_TOOLS = [
   {
     name: "kitty_read",
     title: "Read Kitty Screen",
-    description: "Read the current screen, tail, scrollback, or last command output from a numbered kitty terminal.",
+    description: "Read the current screen, tail, scrollback, or last command output from a singleton kitty tab/window.",
     inputSchema: {
       type: "object",
       properties: {
         window_id: { type: "integer", description: "Kitty window id." },
-        short_id: { type: "string", description: "Human-visible kitty short id, such as K1. Missing targets are created automatically." },
+        short_id: { type: "string", description: "Human-visible tab selector, such as T3. Missing targets use the active tab." },
         mode: {
           type: "string",
           enum: READ_MODES,
@@ -165,11 +165,7 @@ export function createKittyController(deps = {}) {
     runWithInput: deps.runWithInput ?? runWithInput,
     waitForSocket: deps.waitForSocket ?? waitForSocket,
     sleep: deps.sleep ?? sleep,
-    processAlive: deps.processAlive ?? processAlive,
-    killProcess: deps.killProcess ?? killProcess,
-    readProcessCommandLine: deps.readProcessCommandLine ?? readProcessCommandLine,
     nowMs: deps.nowMs ?? (() => Date.now()),
-    makeId: deps.makeId ?? makeId,
     socketTimeoutMs: deps.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS,
   };
 
@@ -201,58 +197,23 @@ export function createKittyController(deps = {}) {
 }
 
 async function listKitty(context, args) {
-  const registry = await readRegistry(context, { pruneStale: true });
   const instances = [];
+  let singleton = null;
 
-  for (const instance of registry.instances) {
-    const kind = instanceKind(instance);
-    if (instance.status === "closed") {
-      instances.push({
-        ...instance,
-        kind,
-        managed: kind === "managed",
-        adopted: kind === "adopted",
-        display_name: displayInstanceName(instance),
-        selector: selectorForInstance(instance),
-        controllable: false,
-        reachable: false,
-        tabs: [],
-        windows: [],
-      });
-      continue;
+  try {
+    singleton = await singletonInstance(context, { autoCreate: false });
+    const snapshot = await readKittySnapshot(context, singleton, { timeoutMs: 5_000 });
+    if (!isWindowlessSnapshot(snapshot)) {
+      instances.push(decorateSingletonInstance(singleton, snapshot));
     }
-
-    try {
-      const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 });
-      if (isWindowlessSnapshot(snapshot)) {
-        await removeInstance(context, instance);
-        continue;
-      }
+  } catch (error) {
+    if (!isPrunableKittyError(error)) {
+      singleton = singleton ?? singletonInstanceShape(context);
       instances.push({
-        ...instance,
-        kind,
-        managed: kind === "managed",
-        adopted: kind === "adopted",
-        display_name: displayInstanceName(instance),
-        selector: selectorForInstance(instance),
-        controllable: true,
-        reachable: true,
-        os_windows: snapshot.os_windows,
-        tabs: snapshot.tabs,
-        windows: snapshot.windows.map((window) => decorateWindow(instance, window)),
-      });
-    } catch (error) {
-      if (isPrunableKittyError(error)) {
-        await removeInstance(context, instance);
-        continue;
-      }
-      instances.push({
-        ...instance,
-        kind,
-        managed: kind === "managed",
-        adopted: kind === "adopted",
-        display_name: displayInstanceName(instance),
-        selector: selectorForInstance(instance),
+        ...singleton,
+        kind: instanceKind(singleton),
+        display_name: displayInstanceName(singleton),
+        selector: selectorForInstance(singleton),
         controllable: false,
         reachable: false,
         error: error instanceof Error ? error.message : String(error),
@@ -262,97 +223,36 @@ async function listKitty(context, args) {
     }
   }
 
-  const unmanaged = args.include_unmanaged ? await listUnmanagedKittyProcesses(context, registry.instances) : [];
+  const unmanaged = args.include_unmanaged ? await listUnmanagedKittyProcesses(context, instances) : [];
   return { ok: true, state_root: context.stateRoot, instances, unmanaged };
 }
 
 async function openKitty(context, args) {
-  await ensureStateDirs(context);
-  const instanceId = context.makeId("ki");
-  const shortId = await allocateShortId(context, args.short_id);
-  const socket = path.join(socketDir(context), `${instanceId}.sock`);
-  await rm(socket, { force: true }).catch(() => {});
-
   const title = optionalNonEmptyString(args.title, "title") ?? "Codex Kitty";
   const cwd = args.cwd == null ? undefined : await resolveDirectory(context, args.cwd);
   const layout = optionalEnum(args.layout, "layout", LAYOUTS);
-  const command = context.env.CODEX_KITTY_BIN || "kitty";
-  const commandArgs = [
-    "-o",
-    "allow_remote_control=socket-only",
-    "--listen-on",
-    `unix:${socket}`,
-    "--start-as=hidden",
-    "--detach",
-    "--title",
-    title,
-  ];
-  if (cwd) {
-    commandArgs.push("--directory", cwd);
-  }
-
-  let launch;
-  let env;
-  try {
-    env = await managedKittyEnv(context, {
-      CODEX_KITTY_WRAPPER_BYPASS: "1",
-      CODEX_KITTY_INSTANCE_ID: instanceId,
-      CODEX_KITTY_SHORT_ID: shortId,
-      CODEX_KITTY_INSTANCE_KIND: "managed",
-      CODEX_KITTY_SOCKET: socket,
-    });
-    launch = await context.runDetached(command, commandArgs, {
-      cwd: cwd ?? context.cwd,
-      env,
-    });
-  } catch (error) {
-    throw mapCommandError(command, error);
-  }
-
-  try {
-    await context.waitForSocket(socket, context.socketTimeoutMs);
-  } catch (error) {
-    throw new Error(`socket_unreachable: managed kitty socket did not become available at ${socket}`);
-  }
-
-  const instance = {
-    instance_id: instanceId,
-    short_id: shortId,
-    kind: "managed",
-    socket,
-    pid: launch.pid,
-    title,
-    cwd,
-    status: "running",
-    created_at: new Date(context.nowMs()).toISOString(),
-    created_at_ms: context.nowMs(),
-  };
-  const hidden = await withInitialWindowMetadata(context, instance).catch(() => instance);
-  const focusGuard = await installKwinFocusRestoreGuard(context, { env, instanceId, title });
-  let launched;
-  try {
-    launched = await launchManagedOsWindow(context, hidden, { cwd: cwd ?? context.cwd, title });
-  } finally {
-    await releaseKwinFocusRestoreGuard(context, focusGuard);
-  }
-  const initialized = {
-    ...hidden,
-    initial_window_id: launched.window_id,
-    initial_tab_id: launched.tab_id,
-    default_window_id: launched.window_id,
-  };
-  await upsertInstance(context, initialized);
-
-  if (Number.isInteger(hidden.initial_window_id) && hidden.initial_window_id !== launched.window_id) {
-    await closeWindowQuietly(context, initialized, hidden.initial_window_id);
-  }
+  const instance = await singletonInstance(context, { autoCreate: true, cwd: cwd ?? context.cwd, title });
+  const launched = instance._auto_created
+    ? await ensureShellWindow(context, instance, { placement: "current" })
+    : await launchShellWindow(context, instance, { cwd: cwd ?? context.cwd, title }, "tab");
+  const initialized = { ...instance, initial_window_id: launched.window_id, initial_tab_id: launched.tab_id, default_window_id: launched.window_id };
+  const tabTitle = await setStructuredTabTitle(context, initialized, launched.tab_id, cwd ?? context.cwd);
 
   if (layout) {
-    await setLayout(context, { instance_id: instanceId, layout, window_id: launched.window_id });
+    await setLayout(context, { instance_id: initialized.instance_id, layout, window_id: launched.window_id });
   }
-  await setLastUsedShortId(context, initialized.short_id);
 
-  return { ok: true, action: "open", managed: true, controllable: true, display_name: displayInstanceName(initialized), selector: selectorForInstance(initialized), ...initialized };
+  return {
+    ok: true,
+    action: instance._auto_created ? "open_singleton" : "open_tab",
+    controllable: true,
+    display_name: tabTitle,
+    selector: { short_id: `T${launched.tab_id}`, window_id: launched.window_id },
+    ...stripInternalInstanceFields(initialized),
+    short_id: `T${launched.tab_id}`,
+    tab_id: launched.tab_id,
+    window_id: launched.window_id,
+  };
 }
 
 async function runCommand(context, args) {
@@ -386,7 +286,7 @@ async function readKitty(context, args) {
     ok: true,
     action: "read",
     instance_id: instance.instance_id,
-    short_id: instance.short_id,
+    short_id: target.short_id,
     instance_kind: instanceKind(instance),
     run_id: runState?.run_id,
     window_id: windowId,
@@ -407,7 +307,7 @@ async function readKitty(context, args) {
       active_window_id: snapshot.windows.find((window) => window.is_active || window.is_focused)?.id,
     };
   }
-  await setLastUsedShortId(context, instance.short_id);
+  await setLastUsedShortId(context, target.short_id);
   return response;
 }
 
@@ -432,7 +332,7 @@ async function sendInput(context, args) {
       ok: true,
       action: "send_key",
       instance_id: instance.instance_id,
-      short_id: instance.short_id,
+      short_id: target.short_id,
       run_id: runState?.run_id,
       window_id: windowId,
       target,
@@ -448,7 +348,7 @@ async function sendInput(context, args) {
       ok: true,
       action: mode.name === "command" ? "send_command" : "send_text",
       instance_id: instance.instance_id,
-      short_id: instance.short_id,
+      short_id: target.short_id,
       run_id: runState?.run_id,
       window_id: windowId,
       target,
@@ -464,7 +364,7 @@ async function sendInput(context, args) {
   if (feedback) {
     response.feedback = feedback;
   }
-  await setLastUsedShortId(context, instance.short_id);
+  await setLastUsedShortId(context, target.short_id);
   return response;
 }
 
@@ -639,107 +539,152 @@ async function closeTarget(context, args) {
     return { ok: true, action: "close_tab", instance_id: instance.instance_id, short_id: instance.short_id, tab_id: tabId };
   }
 
-  if (args.instance_id != null || args.short_id != null) {
-    if (instanceKind(instance) === "adopted") {
-      throw new Error("refusing to close adopted kitty instance; close a specific run, window, or tab instead");
-    }
-    try {
-      await runKitten(context, instance, ["close-window", "--match", "all"], { timeoutMs: 10_000 });
-    } catch (error) {
-      if (!isPrunableKittyError(error)) {
-        throw error;
-      }
-    }
-    await removeInstance(context, instance);
-    return { ok: true, action: "close_instance", instance_id: instance.instance_id, short_id: instance.short_id };
-  }
-
-  throw new Error("kitty_close requires run_id, window_id, tab_id, or instance_id");
+  throw new Error("kitty_close requires run_id, window_id, or tab_id");
 }
 
 async function resolveInstance(context, selector = {}, options = {}) {
-  const registry = await readRegistry(context, { pruneStale: true });
   const instanceId = typeof selector === "string" ? selector : selector.instance_id;
-  const shortId = normalizeOptionalShortId(typeof selector === "string" ? undefined : selector.short_id)
-    ?? (options.defaultShortId ? normalizeOptionalShortId(registry.last_used_short_id) ?? "K1" : undefined);
-  if (instanceId || shortId) {
-    const matches = registry.instances.filter((candidate) =>
-      instanceId ? candidate.instance_id === instanceId : candidate.short_id === shortId,
-    );
-    const instance = matches.find((candidate) => candidate.status !== "closed") ?? matches[0];
-    if (!instance) {
-      if (shortId && options.autoCreate) {
-        const opened = await openKitty(context, { short_id: shortId, title: `Codex Kitty ${shortId}` });
-        return publicInstanceFromOpen(opened, true);
-      }
-      throw new Error(`socket_unreachable: unknown kitty instance ${instanceId ?? shortId}`);
-    }
-    if (instance.status === "closed" && shortId && options.autoCreate) {
-      const opened = await openKitty(context, { short_id: shortId, title: `Codex Kitty ${shortId}` });
-      return publicInstanceFromOpen(opened, true);
-    }
-    if (shortId && options.autoCreate) {
-      try {
-        const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 });
-        if (isWindowlessSnapshot(snapshot)) {
-          await removeInstance(context, instance);
-          const opened = await openKitty(context, { short_id: shortId, title: `Codex Kitty ${shortId}` });
-          return publicInstanceFromOpen(opened, true);
-        }
-      } catch (error) {
-        if (isPrunableKittyError(error)) {
-          await removeInstance(context, instance);
-          const opened = await openKitty(context, { short_id: shortId, title: `Codex Kitty ${shortId}` });
-          return publicInstanceFromOpen(opened, true);
-        }
-        throw error;
-      }
-    }
-    return instance;
+  const tabSelector = normalizeOptionalShortId(typeof selector === "string" ? undefined : selector.short_id);
+  if (instanceId && instanceId !== SINGLETON_INSTANCE_ID) {
+    throw new Error(`socket_unreachable: unknown kitty instance ${instanceId}`);
   }
 
-  const active = registry.instances.filter((candidate) => candidate.status !== "closed");
-  const managed = active.filter((candidate) => instanceKind(candidate) === "managed");
-  const adopted = active.filter((candidate) => instanceKind(candidate) === "adopted");
-
-  if (managed.length === 1) {
-    return managed[0];
+  const instance = await singletonInstance(context, { autoCreate: Boolean(options.autoCreate) });
+  if (tabSelector) {
+    return { ...instance, _target_tab_id: tabSelector.tab_id, short_id: tabSelector.short_id };
   }
-  if (managed.length > 1) {
-    throw ambiguousInstanceError("multiple managed kitty instances are available", managed);
-  }
-  if (adopted.length === 1) {
-    return adopted[0];
-  }
-  if (adopted.length > 1) {
-    throw ambiguousInstanceError("multiple adopted kitty instances are available", adopted);
-  }
-
-  if (options.autoCreate) {
-    const opened = await openKitty(context, { short_id: "K1", title: "Codex Kitty K1" });
-    return publicInstanceFromOpen(opened, true);
-  }
-
-  throw new Error("socket_unreachable: no managed kitty instance is registered");
+  return instance;
 }
 
-function publicInstanceFromOpen(opened, autoCreated = false) {
+function mainSocket(context) {
+  return path.join(context.stateRoot, "main.sock");
+}
+
+function tabCwdBase(cwd) {
+  const base = path.basename(path.resolve(cwd));
+  return base || "root";
+}
+
+function shortenTabLabel(label) {
+  const text = String(label ?? "").trim();
+  if (text.length <= TAB_LABEL_MAX) {
+    return text;
+  }
+  const head = Math.floor((TAB_LABEL_MAX - 1) / 2);
+  const tail = TAB_LABEL_MAX - 1 - head;
+  return `${text.slice(0, head)}…${text.slice(-tail)}`;
+}
+
+function tabLabelForCwd(cwd) {
+  return shortenTabLabel(tabCwdBase(cwd));
+}
+
+function provisionalTabTitleForCwd(cwd) {
+  return tabLabelForCwd(cwd);
+}
+
+function tabTitleForCwd(tabId, cwd) {
+  requireInteger(tabId, "tab_id");
+  return tabLabelForCwd(cwd);
+}
+
+function tabDisplayName(tabId, label) {
+  return `T${requireInteger(tabId, "tab_id")} · ${shortenTabLabel(label)}`;
+}
+
+async function setStructuredTabTitle(context, instance, tabId, cwd) {
+  const title = tabTitleForCwd(tabId, cwd ?? instance.cwd ?? context.cwd);
+  await runKitten(context, instance, ["set-tab-title", "--match", `id:${requireInteger(tabId, "tab_id")}`, title], { timeoutMs: 10_000 });
+  return tabDisplayName(tabId, title);
+}
+
+function singletonInstanceShape(context) {
   return {
-    instance_id: opened.instance_id,
-    short_id: opened.short_id,
-    socket: opened.socket,
-    pid: opened.pid,
-    title: opened.title,
-    cwd: opened.cwd,
-    kind: opened.kind,
-    status: opened.status,
-    initial_window_id: opened.initial_window_id,
-    initial_tab_id: opened.initial_tab_id,
-    default_window_id: opened.default_window_id,
-    created_at: opened.created_at,
-    created_at_ms: opened.created_at_ms,
-    _auto_created: autoCreated,
+    instance_id: SINGLETON_INSTANCE_ID,
+    kind: "singleton",
+    socket: mainSocket(context),
+    pid: null,
+    title: SINGLETON_TITLE,
+    cwd: context.cwd,
+    status: "running",
+    created_at: undefined,
+    created_at_ms: undefined,
   };
+}
+
+async function singletonInstance(context, options = {}) {
+  await ensureStateDirs(context);
+  const socket = mainSocket(context);
+  const instance = {
+    ...singletonInstanceShape(context),
+    cwd: options.cwd ?? context.cwd,
+    title: options.title ?? SINGLETON_TITLE,
+  };
+
+  if (await socketControlsKitty(context, instance)) {
+    return { ...instance, pid: await findKittyPidForSocket(context, socket) };
+  }
+
+  if (!options.autoCreate) {
+    throw new Error(`socket_unreachable: singleton kitty socket is unavailable: ${socket}`);
+  }
+
+  await rm(socket, { force: true }).catch(() => {});
+  const command = context.env.CODEX_KITTY_BIN || "kitty";
+  const commandArgs = [
+    "-o",
+    "allow_remote_control=socket-only",
+    "--listen-on",
+    `unix:${socket}`,
+    "--detach",
+    "--title",
+    instance.title,
+  ];
+  if (options.cwd) {
+    commandArgs.push("--directory", options.cwd);
+  }
+
+  const env = await singletonKittyEnv(context, {
+    CODEX_KITTY_WRAPPER_BYPASS: "1",
+    CODEX_KITTY_INSTANCE_ID: SINGLETON_INSTANCE_ID,
+    CODEX_KITTY_INSTANCE_KIND: "singleton",
+    CODEX_KITTY_SOCKET: socket,
+  });
+  let launch;
+  try {
+    launch = await context.runDetached(command, commandArgs, {
+      cwd: options.cwd ?? context.cwd,
+      env,
+    });
+  } catch (error) {
+    throw mapCommandError(command, error);
+  }
+
+  try {
+    await context.waitForSocket(socket, context.socketTimeoutMs);
+  } catch {
+    throw new Error(`socket_unreachable: singleton kitty socket did not become available at ${socket}`);
+  }
+
+  return {
+    ...instance,
+    pid: launch.pid,
+    created_at: new Date(context.nowMs()).toISOString(),
+    created_at_ms: context.nowMs(),
+    _auto_created: true,
+  };
+}
+
+async function socketControlsKitty(context, instance) {
+  try {
+    const snapshot = await readKittySnapshot(context, instance, { timeoutMs: REGISTRY_INACTIVE_PROBE_TIMEOUT_MS });
+    return !isWindowlessSnapshot(snapshot);
+  } catch (error) {
+    if (!isPrunableKittyError(error)) {
+      throw error;
+    }
+    return false;
+  }
 }
 
 async function runKitten(context, instance, args, options = {}) {
@@ -795,12 +740,20 @@ async function ensureShellWindow(context, instance, args = {}) {
   }
 
   const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 });
-  const preferred = snapshot.windows.find((window) => Number.isInteger(instance.default_window_id) && window.id === instance.default_window_id)
+  const targetTab = Number.isInteger(instance._target_tab_id)
+    ? snapshot.tabs.find((tab) => tab.id === instance._target_tab_id)
+    : null;
+  const preferred = targetTab
+    ? snapshot.windows.find((window) => window.id === targetTab.active_window_id) ?? snapshot.windows.find((window) => window.tab_id === targetTab.id)
+    : snapshot.windows.find((window) => Number.isInteger(instance.default_window_id) && window.id === instance.default_window_id)
     ?? snapshot.windows.find((window) => Number.isInteger(instance.initial_window_id) && window.id === instance.initial_window_id)
     ?? snapshot.windows.find((window) => window.is_focused || window.is_active)
     ?? snapshot.windows[0];
+  if (Number.isInteger(instance._target_tab_id) && !targetTab) {
+    throw new Error(`tab_not_found: ${instance._target_tab_id}`);
+  }
   if (!preferred) {
-    return await launchShellWindow(context, instance, args, "window");
+    throw new Error("window_not_found: singleton kitty has no active shell window");
   }
   if (instance._auto_created && preferred.id === instance.initial_window_id) {
     await context.sleep(SHELL_READY_DELAY_MS);
@@ -832,8 +785,8 @@ async function launchShellWindow(context, instance, args, placement) {
     "--env",
     `CODEX_KITTY_SOCKET=${instance.socket}`,
   ];
-  if (instance.short_id) {
-    launchArgs.push("--env", `CODEX_KITTY_SHORT_ID=${instance.short_id}`);
+  if (placement === "tab") {
+    launchArgs.push("--tab-title", provisionalTabTitleForCwd(cwd));
   }
   const location = placementLocation(placement);
   if (location) {
@@ -845,177 +798,11 @@ async function launchShellWindow(context, instance, args, placement) {
   await context.sleep(SHELL_READY_DELAY_MS);
   const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 }).catch(() => null);
   const window = snapshot?.windows.find((candidate) => candidate.id === windowId) ?? { id: windowId, title, cwd };
+  if (placement === "tab" && Number.isInteger(window.tab_id)) {
+    await setStructuredTabTitle(context, instance, window.tab_id, cwd);
+  }
   await rememberDefaultWindow(context, instance, windowId);
   return targetForWindow(instance, window);
-}
-
-async function launchManagedOsWindow(context, instance, args) {
-  const cwd = args.cwd == null ? instance.cwd ?? context.cwd : await resolveDirectory(context, args.cwd);
-  const title = optionalNonEmptyString(args.title, "title") ?? `Codex Kitty ${instance.short_id ?? ""}`.trim();
-  const launchArgs = [
-    "launch",
-    "--type",
-    "os-window",
-    "--dont-take-focus",
-    "--title",
-    title,
-    "--os-window-title",
-    title,
-    "--cwd",
-    cwd,
-    "--env",
-    `CODEX_KITTY_INSTANCE_ID=${instance.instance_id}`,
-    "--env",
-    `CODEX_KITTY_INSTANCE_KIND=${instanceKind(instance)}`,
-    "--env",
-    `CODEX_KITTY_SOCKET=${instance.socket}`,
-  ];
-  if (instance.short_id) {
-    launchArgs.push("--env", `CODEX_KITTY_SHORT_ID=${instance.short_id}`);
-  }
-
-  const launch = await runKitten(context, instance, launchArgs, { timeoutMs: 10_000 });
-  const windowId = parseWindowId(launch.stdout);
-  await context.sleep(SHELL_READY_DELAY_MS);
-  const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 }).catch(() => null);
-  const window = snapshot?.windows.find((candidate) => candidate.id === windowId) ?? { id: windowId, title, cwd };
-  return targetForWindow(instance, window);
-}
-
-async function installKwinFocusRestoreGuard(context, args) {
-  const env = args.env ?? context.env;
-  if (!shouldRestoreKwinFocus(context, env)) {
-    return null;
-  }
-
-  await mkdir(runDir(context), { recursive: true, mode: 0o700 });
-  const pluginName = sanitizeKwinScriptName(`codex-plugin-kitty-focus-${args.instanceId}`);
-  const scriptPath = path.join(runDir(context), `${pluginName}.js`);
-  await writeFile(scriptPath, kwinFocusRestoreScript(args.title), { mode: 0o600 });
-
-  try {
-    const load = await runKwinScripting(context, ["loadScript", scriptPath, pluginName], { env });
-    const scriptId = Number.parseInt(load.stdout.trim(), 10);
-    if (!Number.isInteger(scriptId) || scriptId <= 0) {
-      await rm(scriptPath, { force: true }).catch(() => {});
-      return null;
-    }
-    await runKwinScripting(context, ["start"], { env });
-    return { env, pluginName, scriptPath };
-  } catch {
-    await rm(scriptPath, { force: true }).catch(() => {});
-    return null;
-  }
-}
-
-async function releaseKwinFocusRestoreGuard(context, guard) {
-  if (!guard) {
-    return;
-  }
-  try {
-    await runKwinScripting(context, ["unloadScript", guard.pluginName], { env: guard.env });
-  } catch {
-    // Best effort: focus restoration must never make kitty_open fail.
-  }
-  await rm(guard.scriptPath, { force: true }).catch(() => {});
-}
-
-async function runKwinScripting(context, args, options = {}) {
-  const commands = qdbusCommandCandidates(context.env);
-  let lastError = null;
-  for (const command of commands) {
-    try {
-      return await context.runBuffered(command, ["org.kde.KWin", "/Scripting", ...args], {
-        timeoutMs: KWIN_SCRIPT_TIMEOUT_MS,
-        env: userSystemdBusEnv(options.env ?? context.env),
-      });
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError ?? new Error("qdbus_not_available");
-}
-
-function qdbusCommandCandidates(env) {
-  if (env.CODEX_KWIN_QDBUS_BIN) {
-    return [env.CODEX_KWIN_QDBUS_BIN];
-  }
-  return ["qdbus", "qdbus6"];
-}
-
-function shouldRestoreKwinFocus(context, env) {
-  const value = context.env.CODEX_KITTY_RESTORE_FOCUS ?? env.CODEX_KITTY_RESTORE_FOCUS;
-  if (value === "0") {
-    return false;
-  }
-  if (value === "1") {
-    return true;
-  }
-  const desktop = [
-    env.XDG_CURRENT_DESKTOP,
-    env.XDG_SESSION_DESKTOP,
-    env.DESKTOP_SESSION,
-    env.KDE_FULL_SESSION,
-    env.KDE_SESSION_VERSION,
-  ].filter(Boolean).join(":").toLowerCase();
-  return desktop.includes("kde");
-}
-
-function sanitizeKwinScriptName(value) {
-  return value.replace(/[^A-Za-z0-9_.-]/g, "-");
-}
-
-function kwinFocusRestoreScript(title) {
-  return `var targetTitle = ${JSON.stringify(title)};
-var previous = workspace.activeWindow;
-var fired = false;
-
-function text(value) {
-  if (value === undefined || value === null) {
-    return "";
-  }
-  return String(value);
-}
-
-function isTargetWindow(window) {
-  if (!previous || !window || window === previous) {
-    return false;
-  }
-  if (targetTitle && text(window.caption).indexOf(targetTitle) !== -1) {
-    return true;
-  }
-  var resourceClass = text(window.resourceClass).toLowerCase();
-  var resourceName = text(window.resourceName).toLowerCase();
-  return resourceClass === "kitty" || resourceName === "kitty";
-}
-
-function activatePrevious() {
-  if (!previous) {
-    return;
-  }
-  if (typeof workspace.activateWindow === "function") {
-    workspace.activateWindow(previous);
-  } else {
-    workspace.activeWindow = previous;
-  }
-  if (typeof workspace.raiseWindow === "function") {
-    workspace.raiseWindow(previous);
-  }
-}
-
-workspace.windowActivated.connect(function(window) {
-  if (fired || !isTargetWindow(window)) {
-    return;
-  }
-  fired = true;
-  callDBus("org.freedesktop.DBus", "/", "org.freedesktop.DBus.Peer", "Ping", function() {
-    activatePrevious();
-    callDBus("org.freedesktop.DBus", "/", "org.freedesktop.DBus.Peer", "Ping", function() {
-      activatePrevious();
-    });
-  });
-});
-`;
 }
 
 async function rememberDefaultWindow(context, instance, windowId) {
@@ -1025,7 +812,7 @@ async function rememberDefaultWindow(context, instance, windowId) {
 
 function targetForWindow(instance, window) {
   return {
-    short_id: instance.short_id,
+    short_id: Number.isInteger(window.tab_id) ? `T${window.tab_id}` : instance.short_id,
     instance_id: instance.instance_id,
     instance_kind: instanceKind(instance),
     window_id: window.id,
@@ -1065,17 +852,44 @@ function normalizeTabs(osWindows) {
   const tabs = [];
   for (const osWindow of osWindows) {
     for (const tab of osWindow.tabs ?? []) {
+      const activeWindowId = tab.active_window_history?.[0];
+      const activeWindow = (tab.windows ?? []).find((window) => window.id === activeWindowId) ?? tab.windows?.[0];
+      const label = tabLabelForSnapshot(tab, activeWindow);
       tabs.push({
         id: tab.id,
+        short_id: `T${tab.id}`,
         title: tab.title,
         layout: tab.layout,
         is_active: tab.is_active,
         os_window_id: osWindow.id,
-        active_window_id: tab.active_window_history?.[0],
+        active_window_id: activeWindowId,
+        selector: { short_id: `T${tab.id}`, tab_id: tab.id, window_id: activeWindowId },
+        label,
+        display_name: tabDisplayName(tab.id, label),
       });
     }
   }
   return tabs;
+}
+
+function tabLabelForSnapshot(tab, activeWindow) {
+  const title = stripTabTitlePrefix(tab.title);
+  const cwdLabel = activeWindow?.cwd ? tabLabelForCwd(activeWindow.cwd) : "";
+  if (shouldUseCwdLabel(title)) {
+    return cwdLabel || "shell";
+  }
+  return shortenTabLabel(title || cwdLabel || "shell");
+}
+
+function stripTabTitlePrefix(title) {
+  return String(title ?? "").trim().replace(/^(?:T\d+|tab\s+\d+)\s*[·:.-]\s*/i, "");
+}
+
+function shouldUseCwdLabel(title) {
+  if (!title || ["Codex Kitty", "kitty", "zsh", "bash", "fish", "sh"].includes(title)) {
+    return true;
+  }
+  return /^[^@\s]+@[^:\s]+:.+/.test(title) || title.startsWith("/") || title.startsWith("~/") || title.includes("/home/");
 }
 
 function normalizeWindows(osWindows) {
@@ -1102,12 +916,11 @@ function normalizeWindows(osWindows) {
 }
 
 function displayInstanceName(instance) {
-  const marker = instance.short_id ? `[${instance.short_id}] ` : "";
   const title = instance.title || instance.instance_id || "kitty";
-  return `${marker}${title} (${instanceKind(instance)})`;
+  return `${title} (${instanceKind(instance)})`;
 }
 
-async function managedKittyEnv(context, extra = {}) {
+async function singletonKittyEnv(context, extra = {}) {
   const env = { ...context.env };
   const sessionEnv = await readUserSessionEnv(context);
   for (const key of USER_SESSION_ENV_KEYS) {
@@ -1183,81 +996,51 @@ function parseEnvironmentLines(text) {
 }
 
 function selectorForInstance(instance) {
-  return instance.short_id ? { short_id: instance.short_id } : { instance_id: instance.instance_id };
+  return { instance_id: instance.instance_id };
 }
 
 function decorateWindow(instance, window) {
-  const selector = { ...selectorForInstance(instance), window_id: window.id };
+  const shortId = Number.isInteger(window.tab_id) ? `T${window.tab_id}` : instance.short_id;
+  const selector = { short_id: shortId, window_id: window.id };
   return {
     ...window,
+    short_id: shortId,
     selector,
-    display_name: `${instance.short_id ? `[${instance.short_id}] ` : ""}window ${window.id}: ${window.title || window.cwd || "kitty"}`,
+    display_name: `${shortId ? `[${shortId}] ` : ""}window ${window.id}: ${window.title || window.cwd || "kitty"}`,
   };
 }
 
-async function withInitialWindowMetadata(context, instance) {
-  const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 });
-  const activeWindow = snapshot.windows.find((window) => window.is_active || window.is_focused) ?? snapshot.windows[0];
-  if (!activeWindow) {
-    return instance;
-  }
+function decorateSingletonInstance(instance, snapshot) {
+  const activeTab = snapshot.tabs.find((tab) => tab.is_active) ?? snapshot.tabs[0];
+  const pid = instance.pid ?? findPidFromSnapshot(snapshot) ?? null;
   return {
     ...instance,
-    initial_window_id: activeWindow.id,
-    initial_tab_id: activeWindow.tab_id,
+    short_id: activeTab ? `T${activeTab.id}` : undefined,
+    pid,
+    kind: instanceKind(instance),
+    display_name: displayInstanceName(instance),
+    selector: selectorForInstance(instance),
+    controllable: true,
+    reachable: true,
+    os_windows: snapshot.os_windows,
+    tabs: snapshot.tabs,
+    windows: snapshot.windows.map((window) => decorateWindow(instance, window)),
   };
 }
 
-async function initialWindowForRunCleanup(context, instance) {
-  if (instanceKind(instance) !== "managed") {
-    return null;
-  }
-  if (Number.isInteger(instance.initial_window_id)) {
-    return instance.initial_window_id;
-  }
-
-  try {
-    const snapshot = await readKittySnapshot(context, instance, { timeoutMs: 5_000 });
-    if (snapshot.windows.length === 1) {
-      return snapshot.windows[0].id;
+function findPidFromSnapshot(snapshot) {
+  for (const window of snapshot.windows) {
+    const value = window.env?.KITTY_PID;
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
     }
-  } catch {
-    return null;
   }
-
   return null;
 }
 
-async function closeInitialWindowAfterLaunch(context, instance, initialWindowId, launchedWindowId) {
-  if (!Number.isInteger(initialWindowId) || initialWindowId === launchedWindowId || instanceKind(instance) !== "managed") {
-    return null;
-  }
-
-  try {
-    await runKitten(context, instance, ["close-window", "--match", `id:${initialWindowId}`], { timeoutMs: 10_000 });
-    const registryInstance = stripInternalInstanceFields(instance);
-    await upsertInstance(context, {
-      ...registryInstance,
-      initial_window_id: null,
-      initial_window_closed_at: new Date(context.nowMs()).toISOString(),
-      initial_window_closed_at_ms: context.nowMs(),
-    });
-    return initialWindowId;
-  } catch {
-    return null;
-  }
-}
-
-async function closeWindowQuietly(context, instance, windowId) {
-  try {
-    await runKitten(context, instance, ["close-window", "--match", `id:${windowId}`], { timeoutMs: 10_000 });
-  } catch {
-    // Best effort cleanup for the hidden bootstrap window.
-  }
-}
-
 function stripInternalInstanceFields(instance) {
-  const { _auto_created, ...publicInstance } = instance;
+  const { _auto_created, _target_tab_id, ...publicInstance } = instance;
   return publicInstance;
 }
 
@@ -1265,16 +1048,19 @@ async function listUnmanagedKittyProcesses(context, managedInstances) {
   try {
     const result = await context.runBuffered("pgrep", ["-a", "kitty"], { timeoutMs: 5_000, allowNonZero: true });
     const managedPids = new Set(managedInstances.map((instance) => Number(instance.pid)).filter(Number.isFinite));
+    const managedSockets = managedInstances.map((instance) => instance.socket).filter(Boolean);
     return result.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
         const [pidText, ...rest] = line.split(/\s+/);
+        const command = rest.join(" ");
+        const socketManaged = managedSockets.some((socket) => command.includes(socket) || command.includes(`unix:${socket}`));
         return {
           pid: Number(pidText),
-          command: rest.join(" "),
-          managed: managedPids.has(Number(pidText)),
+          command,
+          managed: managedPids.has(Number(pidText)) || socketManaged,
           controllable: false,
           reason: "no registered remote-control socket",
         };
@@ -1288,6 +1074,21 @@ async function listUnmanagedKittyProcesses(context, managedInstances) {
       },
     ];
   }
+}
+
+async function findKittyPidForSocket(context, socket) {
+  const result = await context.runBuffered("pgrep", ["-a", "kitty"], { timeoutMs: 5_000, allowNonZero: true });
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || (!trimmed.includes(socket) && !trimmed.includes(`unix:${socket}`))) {
+      continue;
+    }
+    const pid = Number.parseInt(trimmed.split(/\s+/, 1)[0], 10);
+    if (Number.isInteger(pid) && pid > 0) {
+      return pid;
+    }
+  }
+  return null;
 }
 
 async function readRunState(context, runId) {
@@ -1359,12 +1160,7 @@ function limitTextLines(text, maxLines) {
 
 async function ensureStateDirs(context) {
   await mkdir(context.stateRoot, { recursive: true, mode: 0o700 });
-  await mkdir(socketDir(context), { recursive: true, mode: 0o700 });
   await mkdir(runDir(context), { recursive: true, mode: 0o700 });
-}
-
-function socketDir(context) {
-  return path.join(context.stateRoot, "sockets");
 }
 
 function runDir(context) {
@@ -1375,193 +1171,51 @@ function registryPath(context) {
   return path.join(context.stateRoot, "instances.json");
 }
 
-async function readRegistry(context, options = {}) {
-  let normalized;
+async function readRegistry(context) {
   try {
     const registry = JSON.parse(await readFile(registryPath(context), "utf8"));
-    normalized = {
+    const lastUsed = normalizeOptionalShortId(registry.last_used_short_id)?.short_id;
+    const singleton = Array.isArray(registry.instances)
+      ? registry.instances.find((instance) => instance?.instance_id === SINGLETON_INSTANCE_ID)
+      : null;
+    return {
       version: 1,
-      last_used_short_id: normalizeOptionalShortId(registry.last_used_short_id),
-      instances: Array.isArray(registry.instances) ? registry.instances : [],
+      last_used_short_id: lastUsed,
+      instances: singleton ? [{ ...singleton, instance_id: SINGLETON_INSTANCE_ID, kind: "singleton", socket: mainSocket(context) }] : [],
     };
   } catch {
     return { version: 1, instances: [] };
   }
-
-  let current = normalized;
-  if (options.pruneStale) {
-    current = await pruneStaleRegistry(context, current);
-  }
-  if (options.pruneInactive) {
-    current = await pruneInactiveRegistry(context, current);
-  }
-  return current;
-}
-
-async function pruneStaleRegistry(context, registry) {
-  const instances = [];
-  let changed = false;
-  for (const instance of registry.instances) {
-    if (await isStaleRegistryInstance(context, instance)) {
-      await cleanupOwnedInstanceResources(context, instance);
-      changed = true;
-      continue;
-    }
-    instances.push(instance);
-  }
-
-  const liveShortIds = new Set(instances.map((instance) => instance.short_id).filter(Boolean));
-  const lastUsed = liveShortIds.has(registry.last_used_short_id) ? registry.last_used_short_id : undefined;
-  if (lastUsed !== registry.last_used_short_id) {
-    changed = true;
-  }
-
-  const pruned = { version: 1, last_used_short_id: lastUsed, instances };
-  if (changed) {
-    await writeRegistry(context, pruned);
-  }
-  return pruned;
-}
-
-async function pruneInactiveRegistry(context, registry) {
-  const instances = [];
-  let changed = false;
-  for (const instance of registry.instances) {
-    if (await isInactiveRegistryInstance(context, instance)) {
-      await cleanupOwnedInstanceResources(context, instance);
-      changed = true;
-      continue;
-    }
-    instances.push(instance);
-  }
-
-  const liveShortIds = new Set(instances.map((instance) => instance.short_id).filter(Boolean));
-  const lastUsed = liveShortIds.has(registry.last_used_short_id) ? registry.last_used_short_id : undefined;
-  if (lastUsed !== registry.last_used_short_id) {
-    changed = true;
-  }
-
-  const pruned = { version: 1, last_used_short_id: lastUsed, instances };
-  if (changed) {
-    await writeRegistry(context, pruned);
-  }
-  return pruned;
-}
-
-async function isStaleRegistryInstance(context, instance) {
-  if (instance?.status === "closed" || !instance?.socket) {
-    return true;
-  }
-  if (!(await pathExists(instance.socket))) {
-    return true;
-  }
-  return false;
-}
-
-async function isInactiveRegistryInstance(context, instance) {
-  if (instance?.status === "closed" || !instance?.socket) {
-    return true;
-  }
-  try {
-    const snapshot = await readKittySnapshot(context, instance, { timeoutMs: REGISTRY_INACTIVE_PROBE_TIMEOUT_MS });
-    return isWindowlessSnapshot(snapshot);
-  } catch (error) {
-    return isPrunableKittyError(error);
-  }
-}
-
-async function pathExists(filePath) {
-  try {
-    await access(filePath, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function unlinkOwnedSocket(context, socket) {
-  if (!socket || !isOwnedSocketPath(context, socket)) {
-    return;
-  }
-  await rm(socket, { force: true }).catch(() => {});
-}
-
-function isOwnedSocketPath(context, socket) {
-  const resolved = path.resolve(socket);
-  const roots = [socketDir(context), path.join(context.stateRoot, "adopted")].map((root) => path.resolve(root));
-  return roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
 }
 
 async function writeRegistry(context, registry) {
-  const payload = { version: 1, instances: registry.instances };
-  if (registry.last_used_short_id) {
-    payload.last_used_short_id = registry.last_used_short_id;
+  const singleton = registry.instances?.find((instance) => instance?.instance_id === SINGLETON_INSTANCE_ID);
+  const payload = {
+    version: 1,
+    instances: singleton ? [{ ...singleton, instance_id: SINGLETON_INSTANCE_ID, kind: "singleton", socket: mainSocket(context) }] : [],
+  };
+  const lastUsed = normalizeOptionalShortId(registry.last_used_short_id)?.short_id;
+  if (lastUsed) {
+    payload.last_used_short_id = lastUsed;
   }
   await writeJsonAtomic(registryPath(context), payload);
 }
 
 function instanceKind(instance) {
-  return instance?.kind === "adopted" ? "adopted" : "managed";
-}
-
-function ambiguousInstanceError(message, instances) {
-  const candidates = instances.map((instance) => ({
-    instance_id: instance.instance_id,
-    short_id: instance.short_id,
-    kind: instanceKind(instance),
-    display_name: displayInstanceName(instance),
-    selector: selectorForInstance(instance),
-    title: instance.title,
-    cwd: instance.cwd,
-    status: instance.status,
-  }));
-  return new Error(`${message}; specify instance_id or short_id. Candidates: ${JSON.stringify(candidates)}`);
+  return instance?.kind === "singleton" ? "singleton" : "singleton";
 }
 
 function isWindowlessSnapshot(snapshot) {
   return (snapshot?.windows?.length ?? 0) === 0;
 }
 
-async function allocateShortId(context, requestedShortId) {
-  await ensureStateDirs(context);
-  const requested = normalizeOptionalShortId(requestedShortId);
-  const registry = await readRegistry(context, { pruneStale: true, pruneInactive: true });
-  const used = new Set(
-    registry.instances
-      .filter((instance) => instance.status !== "closed")
-      .map((instance) => instance.short_id)
-      .filter(Boolean),
-  );
-
-  if (requested) {
-    if (used.has(requested)) {
-      throw new Error(`short_id_unavailable: ${requested} is already registered`);
-    }
-    return requested;
-  }
-
-  for (let index = 1; index < 100; index += 1) {
-    const candidate = `K${index}`;
-    if (used.has(candidate)) {
-      continue;
-    }
-    try {
-      await access(path.join(context.stateRoot, "adopted", `${candidate}.sock`), fsConstants.F_OK);
-      continue;
-    } catch {
-      return candidate;
-    }
-  }
-
-  throw new Error("no available Codex Kitty short id K1..K99");
-}
-
 async function upsertInstance(context, instance) {
+  if (instance?.instance_id !== SINGLETON_INSTANCE_ID) {
+    throw new Error(`unknown kitty instance ${instance?.instance_id ?? ""}`.trim());
+  }
   await ensureStateDirs(context);
   const registry = await readRegistry(context);
-  const instances = registry.instances.filter((candidate) => candidate.instance_id !== instance.instance_id);
-  instances.push(instance);
-  await writeRegistry(context, { version: 1, last_used_short_id: registry.last_used_short_id, instances });
+  await writeRegistry(context, { version: 1, last_used_short_id: registry.last_used_short_id, instances: [instance] });
 }
 
 async function setLastUsedShortId(context, shortId) {
@@ -1571,60 +1225,7 @@ async function setLastUsedShortId(context, shortId) {
   }
   await ensureStateDirs(context);
   const registry = await readRegistry(context);
-  await writeRegistry(context, { ...registry, last_used_short_id: normalized });
-}
-
-async function removeInstance(context, instance) {
-  await cleanupOwnedInstanceResources(context, instance);
-  const registry = await readRegistry(context);
-  const instances = registry.instances.filter((candidate) => candidate.instance_id !== instance.instance_id);
-  const liveShortIds = new Set(instances.map((candidate) => candidate.short_id).filter(Boolean));
-  await writeRegistry(context, {
-    version: 1,
-    last_used_short_id: liveShortIds.has(registry.last_used_short_id) ? registry.last_used_short_id : undefined,
-    instances,
-  });
-}
-
-async function cleanupOwnedInstanceResources(context, instance) {
-  await terminateOwnedManagedProcess(context, instance);
-  await unlinkOwnedSocket(context, instance.socket);
-}
-
-async function terminateOwnedManagedProcess(context, instance) {
-  if (instanceKind(instance) !== "managed" || !instance?.socket || !isOwnedSocketPath(context, instance.socket)) {
-    return;
-  }
-
-  const pid = Number(instance.pid);
-  if (!Number.isInteger(pid) || pid <= 0 || !context.processAlive(pid)) {
-    return;
-  }
-
-  if (!(await managedProcessMatchesInstance(context, instance, pid))) {
-    return;
-  }
-
-  signalProcessQuietly(context, pid, "SIGTERM");
-  await context.sleep(MANAGED_PROCESS_SHUTDOWN_GRACE_MS);
-  if (context.processAlive(pid)) {
-    signalProcessQuietly(context, pid, "SIGKILL");
-  }
-}
-
-async function managedProcessMatchesInstance(context, instance, pid) {
-  const cmdline = await context.readProcessCommandLine(pid);
-  if (!cmdline) {
-    return false;
-  }
-  return cmdline.includes(instance.socket) || cmdline.includes(`unix:${instance.socket}`);
-}
-
-function signalProcessQuietly(context, pid, signal) {
-  try {
-    context.killProcess(pid, signal);
-  } catch {
-  }
+  await writeRegistry(context, { ...registry, last_used_short_id: normalized.short_id });
 }
 
 async function writeJsonAtomic(filePath, payload) {
@@ -1647,39 +1248,11 @@ function normalizeOptionalShortId(value) {
     return undefined;
   }
   const text = String(value).trim().toUpperCase();
-  if (!/^K([1-9][0-9]?)$/.test(text)) {
-    throw new Error("short_id must be K1..K99");
+  const match = /^T([1-9][0-9]*)$/.exec(text);
+  if (!match) {
+    throw new Error("short_id must be a tab selector such as T3");
   }
-  return text;
-}
-
-function processAlive(pid) {
-  const parsed = Number(pid);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return false;
-  }
-  try {
-    process.kill(parsed, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
-function killProcess(pid, signal) {
-  process.kill(pid, signal);
-}
-
-async function readProcessCommandLine(pid) {
-  if (process.platform !== "linux") {
-    return "";
-  }
-  try {
-    const raw = await readFile(path.join("/proc", String(pid), "cmdline"), "utf8");
-    return raw.replaceAll("\0", " ");
-  } catch {
-    return "";
-  }
+  return { short_id: text, tab_id: Number.parseInt(match[1], 10) };
 }
 
 async function waitForSocket(socket, timeoutMs) {
@@ -1708,18 +1281,12 @@ function defaultStateRoot(env) {
   if (env.CODEX_KITTY_STATE_DIR) {
     return path.resolve(env.CODEX_KITTY_STATE_DIR);
   }
-  if (env.XDG_RUNTIME_DIR) {
-    return path.join(env.XDG_RUNTIME_DIR, "codex", "plugins", "kitty");
-  }
-  return path.join(os.tmpdir(), `codex-plugin-kitty-${getUid()}`);
+  const runtimeDir = env.XDG_RUNTIME_DIR || path.join("/run/user", String(getUid()));
+  return path.join(runtimeDir, "codex", "plugins", "kitty");
 }
 
 function getUid() {
   return typeof process.getuid === "function" ? process.getuid() : os.userInfo().username;
-}
-
-function makeId(prefix) {
-  return `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 }
 
 function sleep(ms) {

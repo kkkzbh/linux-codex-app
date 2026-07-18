@@ -15,19 +15,26 @@ source "$SCRIPT_DIR/scripts/electron-runtime-cache.sh"
 DEFAULT_INSTALL_ROOT="$REPO_ROOT/staged-installs"
 INSTALL_DIR=""
 ELECTRON_VERSION="42.1.0"
-WORK_DIR="$(mktemp -d)"
+WORK_ROOT="${CODEX_INSTALL_WORK_ROOT:-$DEFAULT_INSTALL_ROOT/.installer-work}"
+WORK_DIR=""
 ARCH="$(uname -m)"
 DMG_URL="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
 ACTIVATE_SCRIPT="$SCRIPT_DIR/scripts/activate-install.sh"
 ENSURE_CODEX_CLI_SCRIPT="$SCRIPT_DIR/scripts/ensure-codex-cli.sh"
 PATCH_NATIVE_MODULE_SOURCES_SCRIPT="$SCRIPT_DIR/scripts/patch-native-module-sources.mjs"
 WRITE_LINUX_PATCH_STATE_SCRIPT="$SCRIPT_DIR/scripts/write-linux-patch-state.mjs"
+BUNDLED_SKILLS_INTEGRITY_SCRIPT="$SCRIPT_DIR/scripts/bundled-skills-integrity.mjs"
+BUNDLED_SKILLS_MANIFEST_FILENAME=".linux-bundled-skills-manifest.json"
+BUNDLED_PLUGIN_STAGING_SCRIPT="$SCRIPT_DIR/scripts/stage-bundled-plugins.mjs"
+BUNDLED_PLUGIN_BLACKLIST_PATH="$SCRIPT_DIR/scripts/bundled-plugin-blacklist.json"
 APP_ICON_SOURCE="$SCRIPT_DIR/assets/codex-app-icon.png"
 SEVENZIP_BIN="${CODEX_SEVENZIP:-7z}"
-LINUX_BUNDLED_PLUGIN_NAMES=("browser" "chrome" "latex")
 LINUX_LOCAL_PLUGIN_NAMES=("dolphin" "kitty" "kde-computer-use=computer-use")
 LINUX_LOCAL_PLUGIN_SOURCE_ROOT="$SCRIPT_DIR/plugins"
 LINUX_BROWSER_AUTOMATION_SOURCE="$SCRIPT_DIR/scripts/linux-browser-automation.mjs"
+LINUX_DOLPHIN_FILE_MANAGER_SOURCE="$SCRIPT_DIR/scripts/linux-dolphin-file-manager.mjs"
+LINUX_BROWSER_PROFILE_IMPORT_SOURCE="$SCRIPT_DIR/scripts/linux-browser-profile-import.cjs"
+LINUX_ONEPASSWORD_BROWSER_PROVIDER_SOURCE="$SCRIPT_DIR/scripts/codex-linux-onepassword-browser-provider.cjs"
 LINUX_BROWSER_RUNTIME_DIR="$SCRIPT_DIR/scripts/linux-browser-runtime"
 LINUX_CHROME_EXTENSION_HOST_SOURCE="$LINUX_BROWSER_RUNTIME_DIR/chrome-extension-host.mjs"
 REFRESH_DMG=0
@@ -63,10 +70,18 @@ EOF
 }
 
 cleanup() {
-    rm -rf "$WORK_DIR"
+    if [ -n "$WORK_DIR" ]; then
+        rm -rf "$WORK_DIR"
+    fi
 }
 trap cleanup EXIT
 trap 'error "Failed at line $LINENO (exit code $?)"' ERR
+
+prepare_work_dir() {
+    mkdir -p "$WORK_ROOT"
+    WORK_DIR="$(mktemp -d "$WORK_ROOT/install.XXXXXX")"
+    info "Using installer work directory: $WORK_DIR"
+}
 
 unique_staging_dir() {
     local base="$DEFAULT_INSTALL_ROOT/codex-app-$(date +%Y%m%d-%H%M%S)"
@@ -97,15 +112,15 @@ resolve_install_dir() {
 # ---- Check dependencies ----
 check_deps() {
     local missing=()
-    for cmd in node npm npx python3 curl unzip; do
+    for cmd in node npm npx python3 curl unzip cmake; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
     if [ ${#missing[@]} -ne 0 ]; then
         error "Missing dependencies: ${missing[*]}
 Install them first:
-  sudo apt install nodejs npm python3 curl unzip build-essential  # Debian/Ubuntu
-  sudo dnf install nodejs npm python3 curl unzip && sudo dnf groupinstall 'Development Tools'  # Fedora
-  sudo pacman -S nodejs npm python curl unzip base-devel  # Arch
+  sudo apt install nodejs npm python3 curl unzip cmake build-essential  # Debian/Ubuntu
+  sudo dnf install nodejs npm python3 curl unzip cmake && sudo dnf groupinstall 'Development Tools'  # Fedora
+  sudo pacman -S nodejs npm python curl unzip cmake base-devel  # Arch
 Set CODEX_SEVENZIP=/path/to/7zz when your system 7-Zip cannot extract APFS DMGs."
     fi
 
@@ -294,7 +309,7 @@ patch_asar() {
     # Build native modules in clean environment and copy back
     build_native_modules "$WORK_DIR/app-extracted"
 
-    info "Applying Linux runtime patches..."
+    info "Applying Linux runtime patches: ${CODEX_LINUX_RUNTIME_PATCH_SET:-all}"
     node "$SCRIPT_DIR/scripts/patch-linux-runtime.mjs" "$WORK_DIR/app-extracted"
 
     # Repack
@@ -305,7 +320,7 @@ patch_asar() {
     info "app.asar patched"
 }
 
-# ---- Copy Linux-usable bundled plugin resources ----
+# ---- Stage every upstream bundled plugin except explicit Linux blockers ----
 copy_bundled_plugins() {
     local app_dir="$1"
     local resources_dir="$app_dir/Contents/Resources"
@@ -314,23 +329,15 @@ copy_bundled_plugins() {
     local dest_root="$WORK_DIR/plugins/openai-bundled"
     local dest_marketplace="$dest_root/.agents/plugins/marketplace.json"
 
-    if [ ! -f "$source_marketplace" ]; then
-        warn "Bundled plugin marketplace not found in upstream resources; Browser Use plugin will be unavailable"
-        return
-    fi
+    [ -f "$source_marketplace" ] || error "Bundled plugin marketplace missing from upstream resources: $source_marketplace"
+    [ -f "$BUNDLED_PLUGIN_STAGING_SCRIPT" ] || error "Bundled plugin staging script missing: $BUNDLED_PLUGIN_STAGING_SCRIPT"
+    [ -f "$BUNDLED_PLUGIN_BLACKLIST_PATH" ] || error "Bundled plugin blacklist missing: $BUNDLED_PLUGIN_BLACKLIST_PATH"
+    [ ! -e "$dest_root" ] || error "Bundled plugin work destination already exists: $dest_root"
 
-    mkdir -p "$dest_root/.agents/plugins" "$dest_root/plugins"
-
-    local copied_plugins=()
-    local plugin_name
-    for plugin_name in "${LINUX_BUNDLED_PLUGIN_NAMES[@]}"; do
-        if [ -d "$source_root/plugins/$plugin_name" ]; then
-            cp -r "$source_root/plugins/$plugin_name" "$dest_root/plugins/"
-            copied_plugins+=("$plugin_name")
-        else
-            warn "Bundled plugin missing in upstream resources: $plugin_name"
-        fi
-    done
+    node "$BUNDLED_PLUGIN_STAGING_SCRIPT" \
+        "$source_root" \
+        "$dest_root" \
+        "$BUNDLED_PLUGIN_BLACKLIST_PATH"
 
     find "$dest_root" -name '*:com.apple.*' -delete 2>/dev/null || true
 
@@ -358,16 +365,6 @@ copy_bundled_plugins() {
         node "$SCRIPT_DIR/scripts/patch-chrome-plugin.mjs" "$dest_root/plugins/chrome"
     fi
 
-    if [ ${#copied_plugins[@]} -eq 0 ]; then
-        warn "No Linux bundled plugins copied"
-        return
-    fi
-
-    node "$SCRIPT_DIR/scripts/filter-bundled-marketplace.mjs" \
-        "$source_marketplace" \
-        "$dest_marketplace" \
-        "${copied_plugins[@]}"
-
     local copied_local_plugins=()
     local local_plugin_spec
     for local_plugin_spec in "${LINUX_LOCAL_PLUGIN_NAMES[@]}"; do
@@ -390,7 +387,24 @@ copy_bundled_plugins() {
             "${copied_local_plugins[@]}"
     fi
 
-    info "Bundled plugin resources copied: ${copied_plugins[*]}${copied_local_plugins[*]:+; local: ${copied_local_plugins[*]}}"
+    info "Upstream bundled plugin resources staged from marketplace${copied_local_plugins[*]:+; local: ${copied_local_plugins[*]}}"
+}
+
+# ---- Copy upstream bundled skills used by Desktop feature flows ----
+copy_bundled_skills() {
+    local app_dir="$1"
+    local source_root="$app_dir/Contents/Resources/skills"
+    local dest_root="$WORK_DIR/skills"
+    local manifest_path="$WORK_DIR/$BUNDLED_SKILLS_MANIFEST_FILENAME"
+
+    [ -d "$source_root" ] || error "Bundled skills root missing from upstream resources: $source_root"
+    [ -f "$BUNDLED_SKILLS_INTEGRITY_SCRIPT" ] || error "Bundled skills integrity helper missing: $BUNDLED_SKILLS_INTEGRITY_SCRIPT"
+    [ ! -e "$dest_root" ] || error "Bundled skills work destination already exists: $dest_root"
+
+    node "$BUNDLED_SKILLS_INTEGRITY_SCRIPT" snapshot "$source_root" "$manifest_path"
+    cp -a "$source_root" "$dest_root"
+    node "$BUNDLED_SKILLS_INTEGRITY_SCRIPT" verify "$dest_root" "$manifest_path"
+    info "Bundled skill resources copied and matched the upstream payload manifest"
 }
 
 # ---- Download Linux Electron ----
@@ -429,31 +443,13 @@ install_runtime_helper_wrappers() {
 set -Eeuo pipefail
 
 SELF="$(readlink -f "$0" 2>/dev/null || printf '%s\n' "$0")"
-CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
-CODEX_STANDALONE_CLI_PATH="${CODEX_STANDALONE_CLI_PATH:-$CODEX_HOME_DIR/packages/standalone/current/codex}"
+CODEX_CLI_PATH="${CODEX_CLI_PATH:-${CODEX_HOME:-$HOME/.codex}/packages/standalone/current/codex}"
+CODEX_CLI_REAL="$(readlink -f "$CODEX_CLI_PATH" 2>/dev/null || printf '%s\n' "$CODEX_CLI_PATH")"
 
-exec_if_distinct() {
-    local candidate="$1"
-    shift
-    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-        local resolved
-        resolved="$(readlink -f "$candidate" 2>/dev/null || printf '%s\n' "$candidate")"
-        if [ "$resolved" != "$SELF" ]; then
-            exec "$candidate" "$@"
-        fi
-    fi
-}
+[ "$CODEX_CLI_REAL" != "$SELF" ] || { echo "Error: CODEX_CLI_PATH resolves to resources/codex itself: $CODEX_CLI_PATH" >&2; exit 1; }
+[ -x "$CODEX_CLI_PATH" ] || { echo "Error: official standalone Codex CLI not found: $CODEX_CLI_PATH" >&2; exit 1; }
 
-exec_if_distinct "${CODEX_CLI_PATH:-}" "$@"
-exec_if_distinct "$CODEX_STANDALONE_CLI_PATH" "$@"
-
-if command -v codex >/dev/null 2>&1; then
-    candidate="$(command -v codex)"
-    exec_if_distinct "$candidate" "$@"
-fi
-
-echo "Error: official standalone Codex CLI not found. Install with: curl -fsSL https://chatgpt.com/codex/install.sh | sh" >&2
-exit 1
+exec "$CODEX_CLI_PATH" "$@"
 SCRIPT
 
     cat > "$INSTALL_DIR/resources/node" <<'SCRIPT'
@@ -490,6 +486,15 @@ SCRIPT
     chmod +x "$INSTALL_DIR/resources/codex" "$INSTALL_DIR/resources/node"
 }
 
+install_cua_node_runtime_layout() {
+    local runtime_bin_dir="$INSTALL_DIR/resources/cua_node/bin"
+
+    mkdir -p "$runtime_bin_dir"
+    cp "$INSTALL_DIR/resources/node" "$runtime_bin_dir/node"
+    cp "$INSTALL_DIR/resources/browser_automation" "$runtime_bin_dir/browser_automation"
+    chmod +x "$runtime_bin_dir/node" "$runtime_bin_dir/browser_automation"
+}
+
 install_app() {
     cp "$WORK_DIR/app.asar" "$INSTALL_DIR/resources/"
     if [ -d "$WORK_DIR/app.asar.unpacked" ]; then
@@ -498,14 +503,33 @@ install_app() {
     if [ -d "$WORK_DIR/plugins" ]; then
         cp -r "$WORK_DIR/plugins" "$INSTALL_DIR/resources/"
     fi
+    [ -d "$WORK_DIR/skills" ] || error "Bundled skill resources missing from work dir"
+    [ -f "$WORK_DIR/$BUNDLED_SKILLS_MANIFEST_FILENAME" ] || error "Bundled skills manifest missing from work dir"
+    rm -rf "$INSTALL_DIR/resources/skills"
+    cp -a "$WORK_DIR/skills" "$INSTALL_DIR/resources/skills"
+    cp "$WORK_DIR/$BUNDLED_SKILLS_MANIFEST_FILENAME" "$INSTALL_DIR/resources/$BUNDLED_SKILLS_MANIFEST_FILENAME"
+    node "$BUNDLED_SKILLS_INTEGRITY_SCRIPT" verify \
+        "$INSTALL_DIR/resources/skills" \
+        "$INSTALL_DIR/resources/$BUNDLED_SKILLS_MANIFEST_FILENAME"
     cp "$LINUX_BROWSER_AUTOMATION_SOURCE" "$INSTALL_DIR/resources/browser_automation"
-    chmod +x "$INSTALL_DIR/resources/browser_automation"
+    cp "$LINUX_DOLPHIN_FILE_MANAGER_SOURCE" "$INSTALL_DIR/resources/codex-dolphin-file-manager"
+    cp "$LINUX_BROWSER_PROFILE_IMPORT_SOURCE" "$INSTALL_DIR/resources/codex-linux-browser-profile-import.cjs"
+    cp "$LINUX_ONEPASSWORD_BROWSER_PROVIDER_SOURCE" "$INSTALL_DIR/resources/codex-linux-onepassword-browser-provider.cjs"
+    chmod +x \
+        "$INSTALL_DIR/resources/browser_automation" \
+        "$INSTALL_DIR/resources/codex-dolphin-file-manager"
     install_runtime_helper_wrappers
+    install_cua_node_runtime_layout
     info "app.asar installed"
 }
 
 # ---- Verify packaged Linux patches and write patch state ----
 write_packaged_linux_patch_state() {
+    if [ "${CODEX_LINUX_PATCH_STATE_MODE:-write}" = "skip" ]; then
+        warn "Skipping Linux patch state because CODEX_LINUX_PATCH_STATE_MODE=skip"
+        return
+    fi
+
     node "$WRITE_LINUX_PATCH_STATE_SCRIPT" "$INSTALL_DIR"
     info "Linux patch state written"
 }
@@ -518,13 +542,9 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-CODEX_STANDALONE_CLI_PATH="${CODEX_STANDALONE_CLI_PATH:-$HOME/.codex/packages/standalone/current/codex}"
+export CODEX_CLI_PATH="${CODEX_CLI_PATH:-${CODEX_HOME:-$HOME/.codex}/packages/standalone/current/codex}"
 
-if [ -x "$CODEX_STANDALONE_CLI_PATH" ]; then
-    export CODEX_CLI_PATH="${CODEX_CLI_PATH:-$CODEX_STANDALONE_CLI_PATH}"
-else
-    export CODEX_CLI_PATH="${CODEX_CLI_PATH:-$(which codex 2>/dev/null)}"
-fi
+[ -x "$CODEX_CLI_PATH" ] || { echo "Error: CODEX_CLI_PATH is not executable: $CODEX_CLI_PATH" >&2; exit 1; }
 
 export CHROME_DESKTOP="${CHROME_DESKTOP:-Codex.desktop}"
 export CODEX_DESKTOP_AUTH_FETCH_SOCKET="${CODEX_DESKTOP_AUTH_FETCH_SOCKET:-/tmp/codex-desktop-auth-fetch-$(id -u).sock}"
@@ -542,11 +562,6 @@ fi
 
 if [ "${CODEX_ELECTRON_ENABLE_LINUX_BROWSER_USE:-}" = "1" ] && [ -z "${CODEX_BROWSER_AUTOMATION_PATH:-}" ]; then
     echo "Warning: Linux Browser Use is enabled but CODEX_BROWSER_AUTOMATION_PATH is not set and resources/browser_automation is missing." >&2
-fi
-
-if [ -z "${CODEX_CLI_PATH:-}" ] || [ ! -x "$CODEX_CLI_PATH" ]; then
-    echo "Error: official standalone Codex CLI not found. Install with: curl -fsSL https://chatgpt.com/codex/install.sh | sh"
-    exit 1
 fi
 
 cd "$SCRIPT_DIR"
@@ -593,6 +608,7 @@ main() {
 
     configure_local_plugins
     check_deps
+    prepare_work_dir
     if [ "${CODEX_SKIP_CODEX_CLI:-0}" = "1" ]; then
         info "Skipping user Codex CLI install/update because CODEX_SKIP_CODEX_CLI=1"
     else
@@ -614,6 +630,7 @@ main() {
 
     patch_asar "$app_dir"
     copy_bundled_plugins "$app_dir"
+    copy_bundled_skills "$app_dir"
     download_electron
     export_app_icon
     install_app

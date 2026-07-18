@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHECK_SCRIPT="$SCRIPT_DIR/check-codex-cli-update.sh"
+GITHUB_AUTHENTICATED_CURL_SCRIPT="$SCRIPT_DIR/github-authenticated-curl.sh"
 OFFICIAL_INSTALL_URL="${CODEX_CLI_INSTALL_URL:-https://chatgpt.com/codex/install.sh}"
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 STANDALONE_CURRENT="${CODEX_STANDALONE_CURRENT:-$CODEX_HOME_DIR/packages/standalone/current}"
@@ -52,13 +53,20 @@ download_file() {
 }
 
 install_standalone_cli() {
-    local tmp_dir install_script
+    local tmp_dir install_script authenticated_bin real_curl
     tmp_dir="$(mktemp -d)"
     install_script="$tmp_dir/codex-install.sh"
+    authenticated_bin="$tmp_dir/authenticated-bin"
 
     info "Installing official standalone Codex CLI"
     download_file "$OFFICIAL_INSTALL_URL" "$install_script"
     sed -i '/^handle_conflicting_install$/d;/^maybe_launch_codex_now$/d' "$install_script"
+
+    [ -x "$GITHUB_AUTHENTICATED_CURL_SCRIPT" ] || error \
+        "Missing authenticated GitHub transport: $GITHUB_AUTHENTICATED_CURL_SCRIPT"
+    real_curl="$(command -v curl)"
+    mkdir -p "$authenticated_bin"
+    ln -s "$GITHUB_AUTHENTICATED_CURL_SCRIPT" "$authenticated_bin/curl"
 
     local args=()
     if [ -n "${CODEX_CLI_RELEASE:-}" ]; then
@@ -69,7 +77,10 @@ install_standalone_cli() {
     # this Linux desktop installer uses CODEX_INSTALL_DIR as the staged app
     # destination. Unset it here so the standalone CLI always lands in the
     # official managed layout and visible bin path.
-    env -u CODEX_INSTALL_DIR sh "$install_script" "${args[@]}"
+    env -u CODEX_INSTALL_DIR \
+        CODEX_REAL_CURL="$real_curl" \
+        PATH="$authenticated_bin:$PATH" \
+        sh "$install_script" "${args[@]}"
     rm -rf "$tmp_dir"
 }
 

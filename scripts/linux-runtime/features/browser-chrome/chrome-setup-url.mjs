@@ -6,13 +6,10 @@ const chromeSetupUrlBuilderRegex = new RegExp(
   String.raw`(?<chromeIcon>${IDENTIFIER})=\`assets\/google-chrome\.png\`,(?<extensionIdAsset>${IDENTIFIER})=\`scripts\/extension-id\.json\`,(?<urlBuilder>${IDENTIFIER})=\`https:\/\/chromewebstore\.google\.com\/detail\/codex\/\`,(?<browserSet>${IDENTIFIER})=(?<setFn>${IDENTIFIER})\(\[\`chrome\`,\`chrome-dev\`,\`chrome-internal\`\]\),`,
 );
 const chromeSetupUrlObjectRegex = new RegExp(
-  String.raw`id:(?<extensionId>${IDENTIFIER}),name:\`Codex Chrome Extension\`,url:\`\$\{(?<urlBuilder>${IDENTIFIER})\}\$\{\k<extensionId>\}\``,
-);
-const installModalExternalOpenRegex = new RegExp(
-  String.raw`onClick:\(\)=>\{(?<dispatcher>${IDENTIFIER})\.dispatchMessage\(\`open-in-browser\`,\{url:(?<plugin>${IDENTIFIER})\.url\}\)\},children:\(0,(?<jsx>${IDENTIFIER})\.jsx\)\((?<component>${IDENTIFIER}),\{id:\`plugins\.installModal\.openBrowserExtension\``,
+  String.raw`id:(?<extensionId>${IDENTIFIER}),name:\`ChatGPT for Chrome\`,url:\`\$\{(?<urlBuilder>${IDENTIFIER})\}\$\{\k<extensionId>\}\``,
 );
 const pluginDetailExternalOpenRegex = new RegExp(
-  String.raw`onClick:\(\)=>\{(?<dispatcher>${IDENTIFIER})\.dispatchMessage\(\`open-in-browser\`,\{url:(?<plugin>${IDENTIFIER})\.url\}\)\},children:\(0,(?<jsx>${IDENTIFIER})\.jsx\)\((?<component>${IDENTIFIER}),\{id:\`plugins\.detail\.setup\.openBrowserExtension\``,
+  String.raw`onClick:(?<event>${IDENTIFIER})=>\{(?<openFn>${IDENTIFIER})\(\{event:\k<event>,href:(?<plugin>${IDENTIFIER})\.url,initiator:\`open_in_browser_bridge\`,openTarget:\`external-browser\`\}\)\},children:\(0,(?<jsx>${IDENTIFIER})\.jsx\)\((?<component>${IDENTIFIER}),\{id:\`plugins\.detail\.setup\.openBrowserExtension\``,
 );
 
 function groupsFor(args, description) {
@@ -33,30 +30,28 @@ function replaceChromeSetupUrlBuilder(...args) {
 
 function replaceChromeSetupUrlObject(...args) {
   const { extensionId, urlBuilder } = groupsFor(args, "Chrome setup URL object patch");
-  return `id:${extensionId}.trim(),name:\`Codex Chrome Extension\`,url:${urlBuilder}(${extensionId})`;
+  return `id:${extensionId}.trim(),name:\`ChatGPT for Chrome\`,url:${urlBuilder}(${extensionId})`;
 }
 
 function replaceExternalOpenClick(sourceId) {
   return (...args) => {
-    const { dispatcher, plugin, jsx, component } = groupsFor(args, `${sourceId} external browser patch`);
-    return `onClick:()=>{${dispatcher}.dispatchMessage(\`open-in-browser\`,{url:${plugin}.url,useExternalBrowser:!0,source:\`plugin_browser_extension_setup\`})},children:(0,${jsx}.jsx)(${component},{id:\`${sourceId}\``;
+    const { event, openFn, plugin, jsx, component } = groupsFor(args, `${sourceId} external browser patch`);
+    return `onClick:${event}=>{${openFn}({event:${event},href:${plugin}.url,initiator:\`open_in_browser_bridge\`,openTarget:\`external-browser\`,source:\`plugin_browser_extension_setup\`})},children:(0,${jsx}.jsx)(${component},{id:\`${sourceId}\``;
   };
 }
 
 export const chromeSetupUrlFeature = {
   id: "chrome-setup-url",
-  version: 3,
+  version: 4,
   requiredMarkers: FEATURE_MARKERS["chrome-setup-url"].requiredMarkers,
   forbiddenMarkers: FEATURE_MARKERS["chrome-setup-url"].forbiddenMarkers,
-  apply(bundleSources, context) {
+  apply(bundleSources) {
     if (this.isApplied(bundleSources)) {
       return bundleSources;
     }
 
     let pluginAvailability = bundleSources.webviewPluginAvailability;
     let pluginDetail = bundleSources.webviewPluginDetail;
-    const sharesPluginInstallFlowBundle =
-      context?.webviewRemoteControlConnectionsVisibilityPath === context?.webviewPluginAvailabilityPath;
 
     pluginAvailability = replaceOrThrow(
       pluginAvailability,
@@ -75,19 +70,7 @@ export const chromeSetupUrlFeature = {
       "Chrome Web Store setup URL object",
       {
         appliedMarkers: [
-          /id:[$A-Z_a-z][$\w]*\.trim\(\),name:`Codex Chrome Extension`,url:[$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*\)/,
-        ],
-      },
-    );
-
-    pluginAvailability = replaceOrThrow(
-      pluginAvailability,
-      installModalExternalOpenRegex,
-      replaceExternalOpenClick("plugins.installModal.openBrowserExtension"),
-      "Chrome install modal external browser setup URL",
-      {
-        appliedMarkers: [
-          /source:`plugin_browser_extension_setup`\}\)\},children:\(0,[$A-Z_a-z][$\w]*\.jsx\)\([$A-Z_a-z][$\w]*,\{id:`plugins\.installModal\.openBrowserExtension`/,
+          /id:[$A-Z_a-z][$\w]*\.trim\(\),name:`ChatGPT for Chrome`,url:[$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*\)/,
         ],
       },
     );
@@ -107,9 +90,6 @@ export const chromeSetupUrlFeature = {
     return {
       ...bundleSources,
       webviewPluginAvailability: pluginAvailability,
-      webviewRemoteControlConnectionsVisibility: sharesPluginInstallFlowBundle
-        ? pluginAvailability
-        : bundleSources.webviewRemoteControlConnectionsVisibility,
       webviewPluginDetail: pluginDetail,
     };
   },

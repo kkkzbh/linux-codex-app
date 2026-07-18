@@ -1,24 +1,28 @@
 import { browserAutomationRuntimeNameFeature } from "./browser-automation-runtime-name.mjs";
 import { browserBackendRegistryFeature } from "./browser-backend-registry.mjs";
+import { browserProfileImportFeature } from "./browser-profile-import.mjs";
 import { browserSecurityFeature } from "./browser-security.mjs";
+import { browserSessionRoutingFeature } from "./browser-session-routing.mjs";
+import { browserStorageIdentityFeature } from "./browser-storage-identity.mjs";
 import { browserUseFeature } from "./browser-use.mjs";
-import { chromeExtensionSettingsFeature } from "./chrome-extension-settings.mjs";
-import { chromeExtensionStatusFeature } from "./chrome-extension-status.mjs";
+import { chromeNativeHostStagingFeature } from "./chrome-native-host-staging.mjs";
 import { chromeSetupUrlFeature } from "./chrome-setup-url.mjs";
 
 export const browserChromeSubpatches = [
   browserUseFeature,
   browserAutomationRuntimeNameFeature,
   browserBackendRegistryFeature,
+  browserStorageIdentityFeature,
+  browserSessionRoutingFeature,
+  browserProfileImportFeature,
   browserSecurityFeature,
-  chromeExtensionSettingsFeature,
-  chromeExtensionStatusFeature,
   chromeSetupUrlFeature,
+  chromeNativeHostStagingFeature,
 ];
 
 export const browserChromeFeature = {
   id: "browser-chrome",
-  version: 1,
+  version: 12,
   subpatches: browserChromeSubpatches,
   apply(bundleSources, context) {
     return this.subpatches.reduce(

@@ -2,12 +2,17 @@ export const FEATURE_MARKERS = {
   "open-targets": {
     requiredMarkers: [
       "linux:{label:`Dolphin`",
+      "codex-dolphin-file-manager",
+      "process.env.CODEX_DOLPHIN_BIN?.trim()",
+      "e?e.includes(`/`)?(0,h.existsSync)(e):Os(e):Os(`dolphin`)",
+      "open:async({command:e,path:t})=>{await Ns(e,[t])}",
       "codexLinuxGwenviewTarget",
       "codexLinuxTyporaTarget",
-      "codexLinuxWpsWriterTarget",
-      "codexLinuxWpsSpreadsheetsTarget",
-      "codexLinuxWpsPresentationTarget",
-      "codexLinuxWpsPdfTarget",
+      "codexLinuxWpsTarget",
+      "codexLinuxOfficeRemoteAppTarget",
+      "function codexLinuxDefaultAppIconForPath",
+      "function codexLinuxOfficeKind",
+      "function codexLinuxRemoteAppName",
       "codexLinuxClionTarget",
       "function codexLinuxJetBrainsArgs",
       "args:codexLinuxJetBrainsArgs",
@@ -23,71 +28,39 @@ export const FEATURE_MARKERS = {
       "codexLinuxIntellijTarget",
       "codexLinuxRiderTarget",
       "codexLinuxRustroverTarget",
+      "codexLinuxWpsWriterTarget",
+      "codexLinuxWpsSpreadsheetsTarget",
+      "codexLinuxWpsPresentationTarget",
+      "codexLinuxWpsPdfTarget",
+      "WPS Writer",
+      "WPS Spreadsheets",
+      "WPS Presentation",
+      "WPS PDF",
       "detect:()=>po(`",
       "detect:()=>Fi(`",
       "detect:()=>fm(`",
+      "ls(`gdbus`)?(0,s.join)(process.resourcesPath,`codex-dolphin-file-manager`):null",
+      "K7(`gdbus`)?(0,E.join)(process.resourcesPath,`codex-dolphin-file-manager`):null",
+      "org.freedesktop.FileManager1.ShowFolders",
+      "org.freedesktop.FileManager1.ShowItems",
+      "open:async({command:e,path:t})=>{let n=IM(t);if(n&&(0,u.statSync)(n).isFile()){await ps(e,[`--select`,n]);return}await ps(e,[n??t])}",
+      "open:async({command:e,path:t})=>{let n=IM(t);if(n&&(0,u.statSync)(n).isFile()){await ps(e,[`--new-window`,`--select`,n]);return}await ps(e,[`--new-window`,n??t])}",
     ],
-  },
-  "markdown-local-media": {
-    requiredMarkers: {
-      webviewMarkdown: [
-        "function codexLinuxNormalizeMediaPath(e)",
-        "function codexLinuxResolveMarkdownMediaPath(e,t)",
-        "function codexLinuxMarkdownImageMimeType(e)",
-        "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,cwd:codexLinuxMarkdownCwd,mediaCacheKey:s,mediaPresentation:c,rootRef:l,src:u,title:d}=e",
-        "C=codexLinuxResolveMarkdownMediaPath(S,codexLinuxMarkdownCwd)",
-        "E=Rt(C??S)",
-        "O=!1,k=!1,A=C!=null",
-        "F=null,I=A",
-        "R=M.safeUrl??F??(I&&ne!=null?Ht({contentsBase64:ne,mimeType:L?.mimeType??null,path:C??S}):S)",
-        "B=A,re=!1",
-        "params:{path:I?C??S:``,hostId:o}",
-        "queryConfig:{cacheKey:s==null?void 0:Array.isArray(s)?[`markdown-media`,...s]:[`markdown-media`,s],enabled:I,gcTime:1/0,staleTime:0,refetchOnMount:`always`}",
-        "(0,Q.jsx)(nn,{...e,animateEnter:t,cwd:n??null,hostId:a,mediaCacheKey:o,mediaPresentation:s,rootRef:c})",
-      ],
-      webviewDiffAnnotations: [
-        "function codexLinuxMarkdownPreviewDir(e)",
-        "(0,Z.jsx)(ye,{enableMetadataPreview:!0,markdown:_,cwd:S})",
-      ],
-      webviewHtml: [],
-    },
-    forbiddenMarkers: {
-      webviewMarkdown: [
-        "function codexLinuxNormalizeMarkdownRemoteMediaUrl(e)",
-        "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
-        "T=Yt(S??ke??x)",
-        "N=O?(A?me(S):ke):null",
-        "R=j.safeUrl??N??(P&&te!=null?$t({contentsBase64:te,mimeType:I?.mimeType??null,path:S??x}):ke??x)",
-        "B=!O&&(A||ke!=null)",
-        "ne=O&&C&&N==null",
-        "{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,mediaCacheKey:s,mediaPresentation:c,rootRef:l,src:u,title:d}=e",
-        "S=u??``,C=g(S)",
-        "E=Rt(S)",
-        "O=D===`video`",
-        "F=A&&O?ce(C):null,I=!O&&A",
-        "B=A&&!O,re=A&&O&&F==null",
-        "queryConfig:{cacheKey:s==null?void 0:Array.isArray(s)?[`markdown-media`,...s]:[`markdown-media`,s],enabled:I,gcTime:1/0,staleTime:1/0}",
-        "(0,Q.jsx)(nn,{...e,animateEnter:t,hostId:a,mediaCacheKey:o,mediaPresentation:s,rootRef:c})",
-      ],
-      webviewDiffAnnotations: [
-        "(0,Z.jsx)(ye,{enableMetadataPreview:!0,markdown:_})",
-      ],
-      webviewHtml: [],
-    },
   },
   "generated-output-artifacts": {
     requiredMarkers: {
-      webviewLocalConversationThread: [
+      webviewGeneratedOutputArtifacts: [
         "function codexLinuxIsGeneratedImageTempArtifactPath(e)",
-        "function codexLinuxResolveGeneratedImageArtifactPath(e,t,n)",
-        "conversationId:e,projectlessOutputDirectory:t(ve,e)",
-        "let t=codexLinuxResolveGeneratedImageArtifactPath(e.path,l)",
+        "function codexLinuxResolveGeneratedImageArtifactPath(e,t)",
+        "codexLinuxGeneratedImageSources=[]",
+        "for(let e of a.items)e?.type===`imageGeneration`&&e.src!=null&&ui(e.src)&&codexLinuxGeneratedImageSources.push(e.src)",
+        "let n=codexLinuxResolveGeneratedImageArtifactPath(e.path,codexLinuxGeneratedImageSources)",
       ],
     },
     forbiddenMarkers: {
-      webviewLocalConversationThread: [
-        "function um(e,{projectlessOutputDirectory:t=null}={}){let n=[];for(let r=e.length-1;r>=0;--r)n.push(fm(e[r],t));return dm(n)}",
-        "for(let e of i.items)e?.type===`imageGeneration`&&e.src!=null&&A(e.src)&&_({cwd:t,projectlessOutputDirectory:n,resourcePath:e.src})&&c({type:`file`,path:t==null?e.src:Vn(t,e.src)})",
+      webviewGeneratedOutputArtifacts: [
+        "a.push([...c,...Ym(s,r,n)])",
+        "case`file`:l({type:`file`,path:t==null?e.path:pt(t,e.path)});break",
       ],
     },
   },
@@ -97,8 +70,51 @@ export const FEATURE_MARKERS = {
       "browserPane:!0,inAppBrowserUse:!0,inAppBrowserUseAllowed:!0,externalBrowserUse:!0,externalBrowserUseAllowed:!0",
     ],
     forbiddenMarkers: [
-      "function xe(e,{buildFlavor:n=t.O.resolve(),env:r=f.default.env,platform:i=f.default.platform}={}){let a=i===`win32`&&r.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...e,computerUse:!0,computerUseNodeRepl:!0}:e,o=n===t.O.Dev?Se(r):null;return o==null?a:{...a,...o}}",
+      "function Xe(e,{buildFlavor:t=i.a.resolve(),env:n=g.default.env,platform:r=g.default.platform}={}){let a=r===`win32`&&e.computerUse===!0?{...e,computerUseNodeRepl:!0}:e,o=r===`win32`&&n.CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE===`1`?{...a,computerUse:!0,computerUseNodeRepl:!0}:a,s=t===i.a.Dev?Ze(n):null;return s==null?{...o,deviceAttestation:be({platform:r})}:{...o,...s,deviceAttestation:be({platform:r})}}",
     ],
+  },
+  "browser-storage-identity": {
+    requiredMarkers: [
+      "codexLinuxBrowserStorageId",
+      "this.codexLinuxBrowserStorageId",
+      /getPagePersistence\([^)]*\)\{[\s\S]*?mode:`persistent`/,
+      /getPagePersistence\([^)]*\)\{[\s\S]*?this\.codexLinuxBrowserStorageId\([^)]*\)[\s\S]*?mode:`persistent`/,
+    ],
+    forbiddenMarkers: [
+      /getBrowserStorageId\([\s\S]*?crypto\.randomUUID\(\)[\s\S]*?mode:`ephemeral`[\s\S]*?getExistingBrowserStorageId/,
+      /getPagePersistence\([\s\S]*?crypto\.randomUUID\(\)[\s\S]*?mode:`persistent`/,
+    ],
+  },
+  "browser-session-routing": {
+    requiredMarkers: {
+      main: [
+        "function AP(e){let t=e[OP]??e[`data-conversation-id`]??null,r=e[kP]??null;if(typeof t==`string`&&t.length>0)return{browserTabId:typeof r==`string`&&r.length>0?n.Mc(r):NP(t),conversationId:t};let i=MP(e.partition);if(i==null||!i.startsWith(`persist:codex-browser-app-route:`))return null;try{let e=decodeURIComponent(i.slice(n.es.length));if(e.length===0)return null;let[t,r]=e.split(`\\0`);return t==null||t.length===0?null:{browserTabId:r==null||r.length===0?NP(t):n.Mc(r),conversationId:t}}catch{return null}}",
+        "function jP(e){let t=e.partition;if(typeof t!=`string`)return null;let r=t.lastIndexOf(n.$o);if(r===-1)return null;let i=t.slice(r+n.$o.length),a=i.lastIndexOf(`:`);if(a===-1)return null;let o=i.slice(0,a),s=Number(i.slice(a+1));return o.length===0||!Number.isInteger(s)||s<=0?null:{hostGeneration:s,rendererInstanceId:o}}",
+        "function OL({configureBrowserSession:e,params:t,preloadPath:n,webPreferences:r}){t.partition=oS(`app`),r.session=e(),r.preload=n,AL(t,r)}",
+      ],
+      webviewCoreSource: [
+        "function _x(e,t){return`${yx}${encodeURIComponent(`${e}\\0${t}`)}`}",
+        "function vx(e,t,n,r){return`${_x(e,t)}${bx}${n}:${r}`}",
+        "yx=`persist:codex-browser-app-route:`",
+        "bx=`:host:`",
+      ],
+      webviewBrowserSidebarRuntime: [
+        "setAttribute(`partition`",
+      ],
+    },
+    forbiddenMarkers: {
+      main: [
+        "codexLinuxBrowserRouteIdentity",
+        "codexLinuxBrowserHostIdentity",
+      ],
+      webviewCoreSource: [
+        "function codexLinuxBrowserPartition()",
+      ],
+      webviewBrowserSidebarRuntime: [
+        "data-browser-sidebar-renderer-instance-id",
+        "data-browser-sidebar-host-generation",
+      ],
+    },
   },
   "browser-automation-runtime-name": {
     requiredMarkers: {
@@ -189,39 +205,56 @@ export const FEATURE_MARKERS = {
       ],
     },
   },
+  "chrome-native-host-staging": {
+    requiredMarkers: {
+      buildChromeNativeHostSource: [
+        "codexLinuxChromePluginRoot",
+        /pluginName:[$A-Z_a-z][$\w]*\.pluginName/,
+        /pluginRoot:codexLinuxChromePluginRoot,target:/,
+        /browserClientPath:\(0,[$A-Z_a-z][$\w]*\.join\)\(codexLinuxChromePluginRoot,`scripts`,`browser-client\.mjs`\)/,
+      ],
+    },
+    forbiddenMarkers: {
+      buildChromeNativeHostSource: [
+        /pluginRoot:[$A-Z_a-z][$\w]*\.pluginRoot,target:/,
+        /browserClientPath:\(0,[$A-Z_a-z][$\w]*\.join\)\([$A-Z_a-z][$\w]*\.pluginRoot,`scripts`,`browser-client\.mjs`\)/,
+      ],
+    },
+  },
   "computer-use-provider": {
     requiredMarkers: {
       webviewComputerUseSettings: [
-        "function codexLinuxComputerUseProvider()",
-        "f=C([...u.availablePlugins,...u.installedPlugins],Te,d)",
-        "let p=f??codexLinuxComputerUseProvider(),m;",
+        "K([..._.availablePlugins,..._.installedPlugins],fn,v)",
       ],
       webviewComputerUseProviderSettings: [
         "kde-computer-use",
+        "t===`computer-use`",
         "plugin.name===`kde-computer-use`",
         "marketplaceName===`local`",
       ],
     },
     forbiddenMarkers: {
       webviewComputerUseSettings: [
-        "f=C(u.availablePlugins,Te,d)",
+        "K(_.availablePlugins,fn,v)",
+        "function codexLinuxComputerUseProvider()",
       ],
       webviewComputerUseProviderSettings: [
-        "function Wn(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=O(Ce());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>g(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Ke(n,e.marketplacePath))??null}",
+        "function Oi(e,t,n){let r=e.filter(e=>e.plugin.name===t||e.plugin.id.split(`@`)[0]===t),i=y(Pt());return(i==null?void 0:r.find(e=>e.marketplaceName===i))??r.find(e=>re(e.marketplaceName))??r.find(e=>e.marketplaceName===`openai-curated`)??r.find(e=>Wt(n,e.marketplacePath))??null}",
       ],
     },
   },
   "computer-use-availability": {
     requiredMarkers: {
       webviewPluginFeatureGate: [
-        "e===`macOS`||e===`windows`||e===`linux`",
-        "isComputerUseGateEnabled:s||o===`linux`",
+        /function [A-Za-z_$][\w$]*\(([A-Za-z_$][\w$]*)\)\{return \1===`macOS`\|\|\1===`windows`\|\|\1===`linux`\}/,
+        /isComputerUseGateEnabled:[A-Za-z_$][\w$]*\|\|[A-Za-z_$][\w$]*===`linux`/,
+        /isHostCompatiblePlatform:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)/,
       ],
     },
     forbiddenMarkers: {
       webviewPluginFeatureGate: [
-        "function _(e){return e===`macOS`||e===`windows`}",
-        "isComputerUseGateEnabled:s,isHostCompatiblePlatform:_(o),isPlatformLoading:a,windowType:`electron`",
+        /function [A-Za-z_$][\w$]*\(([A-Za-z_$][\w$]*)\)\{return \1===`macOS`\|\|\1===`windows`\}/,
+        /isComputerUseGateEnabled:[A-Za-z_$][\w$]*,isHostCompatiblePlatform:[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\),isPlatformLoading:[A-Za-z_$][\w$]*,windowType:`electron`/,
       ],
     },
   },
@@ -236,6 +269,42 @@ export const FEATURE_MARKERS = {
     ],
     forbiddenMarkers: [],
   },
+  "browser-profile-import": {
+    requiredMarkers: {
+      main: [
+        "codex-linux-browser-profile-import.cjs",
+        "createLinuxBrowserProfileImporter({electron:c})",
+        "process.platform===`linux`",
+      ],
+      buildBrowserRuntimeSource: ["G([`atlas`,`chrome`,`onepassword`])"],
+      webviewCoreSource: ["V([`atlas`,`chrome`,`onepassword`])"],
+      webviewBrowserProfileImportDialog: [
+        "document.documentElement.dataset.codexOs===`darwin`&&k?.source!==`onepassword`",
+        "case`onepassword`:{r=(0,$.jsx)(ge,{className:`size-4 shrink-0`})",
+        "No Chrome, Atlas, or 1Password profiles were found on this device",
+        "Import from your browser",
+        "Choose data to bring over to the built-in browser",
+      ],
+      webviewComputerUseProviderSettings: [
+        "Developer mode",
+        "Enable full CDP access",
+        "full Chrome DevTools Protocol (CDP) access",
+      ],
+    },
+    forbiddenMarkers: {
+      main: [
+        "function mS(){if(process.platform!==`darwin`&&process.platform!==`win32`||!i.o())return null;",
+      ],
+      buildBrowserRuntimeSource: ["G([`atlas`,`chrome`])"],
+      webviewCoreSource: ["V([`atlas`,`chrome`])"],
+      webviewBrowserProfileImportDialog: [
+        "ee=typeof document<`u`&&document.documentElement.dataset.codexOs===`darwin`,N=M&&k?.source===`chrome`",
+        "document.documentElement.dataset.codexOs===`darwin`||document.documentElement.dataset.codexOs===`linux`)&&k?.source!==`onepassword`",
+        "No Chrome or Atlas profiles were found on this device",
+      ],
+      webviewComputerUseProviderSettings: [],
+    },
+  },
   "browser-security": {
     requiredMarkers: [
       "CODEX_DESKTOP_AUTH_FETCH_SOCKET",
@@ -248,70 +317,44 @@ export const FEATURE_MARKERS = {
       "codexLinuxNormalizeBrowserApprovalOrigin",
       "codexLinuxReadBrowserUseState",
       "codexLinuxResolveBrowserApprovalPolicy",
-      "Linux browser-use state unavailable",
-      "await ny(e)",
-      "await sy(`allowed`,e.origin,n)",
-      "await cy(e.transferKind,`allowed`,e.origin,n)",
       "sensitive_data===`browsing_history`",
       "file_transfer===`download`||t.file_transfer===`upload`",
       "createServer({allowHalfOpen:!0}",
       "Linux authenticated fetch URL is not allowlisted",
       "Linux browser approval request is not allowlisted",
-      "codexLinuxStartBrowserSecurityServers({appServerClient:de.getAppServerClient(),codexHome:A.codexHome})",
+      "codexLinuxStartBrowserSecurityServers({appServerClient:he.getAppServerClient(),codexHome:P.codexHome})",
     ],
     forbiddenMarkers: [
       "prodApiBaseUrl:r.prodApiBaseUrl,hostId:L});u.startLinuxBrowserSecurityServers?.();let d=new",
       "linux-browser-origin-approvals.json",
+      "Linux browser-use state unavailable",
+      "Linux browser-use approval persist failed",
+      "return await ux(e)",
+      "await hx(`allowed`,e.origin,n)",
+      "await gx(e.transferKind,`allowed`,e.origin,n)",
+      "return await hx(e)",
+      "await bx(`allowed`,e.origin,n)",
+      "await xx(e.transferKind,`allowed`,e.origin,n)",
     ],
   },
   "chrome-setup-url": {
     requiredMarkers: {
       webviewPluginAvailability: [
         /https:\/\/chromewebstore\.google\.com\/detail\/codex\/\$\{encodeURIComponent\([$A-Z_a-z][$\w]*\.trim\(\)\)\}/,
-        /id:[$A-Z_a-z][$\w]*\.trim\(\),name:`Codex Chrome Extension`,url:[$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*\)/,
-        "useExternalBrowser:!0,source:`plugin_browser_extension_setup`",
+        /id:[$A-Z_a-z][$\w]*\.trim\(\),name:`ChatGPT for Chrome`,url:[$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*\)/,
       ],
       webviewPluginDetail: [
-        "useExternalBrowser:!0,source:`plugin_browser_extension_setup`",
+        "openTarget:`external-browser`,source:`plugin_browser_extension_setup`",
       ],
     },
     forbiddenMarkers: {
       webviewPluginAvailability: [
         /[$A-Z_a-z][$\w]*=`https:\/\/chromewebstore\.google\.com\/detail\/codex\/`/,
-        /id:[$A-Z_a-z][$\w]*,name:`Codex Chrome Extension`,url:`\$\{[$A-Z_a-z][$\w]*\}\$\{[$A-Z_a-z][$\w]*\}`/,
-        /onClick:\(\)=>\{[$A-Z_a-z][$\w]*\.dispatchMessage\(`open-in-browser`,\{url:[$A-Z_a-z][$\w]*\.url\}\)\},children:\(0,[$A-Z_a-z][$\w]*\.jsx\)\([$A-Z_a-z][$\w]*,\{id:`plugins\.installModal\.openBrowserExtension`/,
+        /id:[$A-Z_a-z][$\w]*,name:`ChatGPT for Chrome`,url:`\$\{[$A-Z_a-z][$\w]*\}\$\{[$A-Z_a-z][$\w]*\}`/,
       ],
       webviewPluginDetail: [
         /onClick:\(\)=>\{[$A-Z_a-z][$\w]*\.dispatchMessage\(`open-in-browser`,\{url:[$A-Z_a-z][$\w]*\.url\}\)\},children:\(0,[$A-Z_a-z][$\w]*\.jsx\)\([$A-Z_a-z][$\w]*,\{id:`plugins\.detail\.setup\.openBrowserExtension`/,
-      ],
-    },
-  },
-  "chrome-extension-status": {
-    requiredMarkers: [
-      /"chrome-extension-installed-read":async\(\{extensionId:e\}\)=>\(\{installed:[$A-Z_a-z][$\w]*\(\{extensionId:e\}\)\}\)/,
-      "n===`linux`?(0,a.join)(e,`.config`,`google-chrome`):null",
-    ],
-    forbiddenMarkers: [
-      "function Jo({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?(0,a.join)(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?(0,a.join)(t??(0,a.join)(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null}",
-    ],
-  },
-  "chrome-extension-settings": {
-    requiredMarkers: {
-      main: [
-        "function codexLinuxDetectChromeCommand(){return vo(`google-chrome`)??vo(`google-chrome-stable`)??vo(`chromium`)??vo(`chromium-browser`)??vo(`chrome`)}",
-        "Opening Chrome extension settings is only supported on macOS, Windows, and Linux",
-      ],
-      webviewComputerUseSettings: [
-        "n===`macOS`||n===`windows`||n===`linux`",
-        "chrome-extension-settings-open",
-      ],
-    },
-    forbiddenMarkers: {
-      main: [
-        "throw Error(`Opening Chrome extension settings is only supported on macOS and Windows`)",
-      ],
-      webviewComputerUseSettings: [
-        "F=n===`macOS`||n===`windows`?(0,Z.jsx)(y,{color:`danger`",
+        /onClick:[$A-Z_a-z][$\w]*=>\{[$A-Z_a-z][$\w]*\(\{event:[$A-Z_a-z][$\w]*,href:[$A-Z_a-z][$\w]*\.url,initiator:`open_in_browser_bridge`,openTarget:`external-browser`\}\)\},children:\(0,[$A-Z_a-z][$\w]*\.jsx\)\([$A-Z_a-z][$\w]*,\{id:`plugins\.detail\.setup\.openBrowserExtension`/,
       ],
     },
   },
@@ -320,18 +363,17 @@ export const FEATURE_MARKERS = {
       "codex_desktop:linux-titlebar-config",
       "codex_desktop:linux-titlebar-action",
       "codex_desktop:linux-titlebar-debug",
-      "linuxTitlebarConfigChannel",
-      "linuxTitlebarActionChannel",
-      "linuxTitlebarDebugChannel",
       "CODEX_LINUX_TITLEBAR_DEBUG",
       "linux-titlebar-debug.jsonl",
       "__codexCustomTitlebar",
-      "let P=process.platform===`linux`?void 0:this.installApplicationMenuTitleBarOverlaySync",
+      "let F=process.platform===`linux`?void 0:this.installApplicationMenuTitleBarOverlaySync",
+      "n.__codexCustomTitlebar?this.windowZooms.set(n.id,t)",
+      "process.platform!==`linux`&&!Dj()&&!I9(e)",
       "frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`,autoHideMenuBar:!0",
       "setMenu(null)",
       "setMenuBarVisibility(!1)",
       "BrowserWindow.getAllWindows().forEach",
-      "process.platform===`linux`?r.Menu.setApplicationMenu(null):r.Menu.setApplicationMenu(ut)",
+      "process.platform===`linux`?c.Menu.setApplicationMenu(null):c.Menu.setApplicationMenu(It)",
     ],
     preloadRequiredMarkers: [
       "codex_desktop:linux-titlebar-config",
@@ -342,7 +384,17 @@ export const FEATURE_MARKERS = {
       "linuxTitlebarDebugChannel",
       "showApplicationMenu:process.platform===`linux`?void 0:async",
       "codex-linux-drag-style",
+      "codex-linux-editor-input-style",
       "data-codex-linux-drag-root",
+      ".composer-surface-chrome",
+      ".ProseMirror",
+      "[contenteditable]",
+      '[role="textbox"]',
+      "[data-codex-composer]",
+      "[data-pierre-editor-surface]",
+      "-webkit-user-select:text!important",
+      "user-select:text!important",
+      "cursor:text!important",
       "codex-linux-window-controls",
       "codexLinuxIpcRenderer",
       "codexLinuxIpcRenderer.invoke(linuxTitlebarConfigChannel)",
@@ -350,6 +402,9 @@ export const FEATURE_MARKERS = {
       "CODEX_LINUX_TITLEBAR_DEBUG",
       "positionLinuxWindowControls",
       "resetLinuxWindowControlsPosition",
+      "getLinuxTitlebarStartSlots",
+      "linuxTitlebarReservedStartSlots",
+      "querySelector(':scope > [data-test-id=\"header-shell-slot\"]')",
       "isLinuxImagePreviewOpen",
       "isLinuxSettingsSurface",
       "syncLinuxWindowControlsVisibility",
@@ -360,6 +415,7 @@ export const FEATURE_MARKERS = {
       '[data-codex-window-type="electron"][data-codex-os="linux"].electron-dark .app-shell-left-panel',
       "backdrop-filter:blur(28px) saturate(1.25)",
       ".app-shell-left-panel:after{background:inherit!important;}",
+      ".main-surface{border-top-left-radius:0!important;border-bottom-left-radius:0!important;border-start-start-radius:0!important;border-end-start-radius:0!important;}",
       "button:not(:disabled){opacity:1!important;filter:none!important;color:var(--color-token-text-primary)!important;}",
       "header-shell-slot",
       "app-shell-left-panel .app-header-tint{background:transparent!important",
@@ -371,19 +427,22 @@ export const FEATURE_MARKERS = {
       '[data-testid="image-preview-dismiss-area"]',
       'aria-hidden","true',
       "inert",
-      'padding-right","96px',
-      'width:16px;height:16px',
+      'padding-left","80px',
+      'top:16px;left:16px;height:14px',
+      'width:14px;height:14px',
       'button:hover',
       'button:active',
-      '[["minimize","Minimize"],["maximize","Maximize"],["close","Close"]]',
+      '[["close","Close"],["minimize","Minimize"],["maximize","Maximize"]]',
     ],
     mainForbiddenMarkers: [
-      "n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:w6(r)}:{titleBarStyle:`default`};",
+      "case`quickChat`:case`primary`:return n===`darwin`?{titleBarStyle:`hiddenInset`,trafficLightPosition:A9(r),...e===`quickChat`?{hasShadow:!0,resizable:!0,transparent:!0}:{},...t?{}:{vibrancy:`menu`}}:n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:j9(r),...e===`quickChat`?{resizable:!0}:{}}:{titleBarStyle:`default`,...e===`quickChat`?{resizable:!0}:{}};",
       "n===`linux`?{frame:!1,hasShadow:!0,transparent:!0,backgroundColor:`#00000000`}:{titleBarStyle:`default`};",
-      "let P=this.installApplicationMenuTitleBarOverlaySync(M,l)",
-      "__codexCustomTitlebar=process.platform===`linux`&&l===`primary`;process.platform===`darwin`",
+      "let F=this.installApplicationMenuTitleBarOverlaySync(M,o)",
+      "setWindowZoom(e,t){let n=c.BrowserWindow.fromWebContents(e),r=n&&this.windowAppearances.get(n.id);n==null||r!==`primary`&&r!==`quickChat`||(process.platform===`darwin`?n.setWindowButtonPosition(A9(t)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(n.id,t),n.setTitleBarOverlay(j9(t))))}",
+      "shouldAlwaysUseOpaqueWindowSurface(e){return Wie({appearance:e,opaqueWindowsEnabled:this.isOpaqueWindowsEnabled(),platform:process.platform})||!Dj()&&!I9(e)}",
+      "__codexCustomTitlebar=process.platform===`linux`&&o===`primary`;process.platform===`darwin`",
       "__codexCustomTitlebar&&M.setMenuBarVisibility(!1)",
-      "r.Menu.setApplicationMenu(ut),NJ(_)",
+      "c.Menu.setApplicationMenu(It),RX(_)",
     ],
     preloadForbiddenMarkers: [
       '[class~="group/windows-top-bar"]>*{visibility:hidden!important;opacity:0!important;}',
@@ -417,51 +476,46 @@ export const FEATURE_MARKERS = {
       "syncLinuxLeftPanelTopInset",
       "--codex-linux-left-panel-padding-top",
       "background:var(--codex-linux-sidebar-surface)!important",
+      'padding-right","96px',
+      't.style.right="12px";t.style.left="auto"',
+      'padding-left","96px',
+      't.style.left="12px";t.style.right="auto"',
+      '[["minimize","Minimize"],["maximize","Maximize"],["close","Close"]]',
+      'document.querySelectorAll(\'.app-header-tint.draggable.pointer-events-none.fixed > [data-test-id="header-shell-slot"]:first-child\')',
       "showApplicationMenu:async(t,n,i)=>{await e.ipcRenderer.invoke(r,{menuId:t,x:n,y:i})}",
-    ],
-    webviewAppShellForbiddenMarkers: [
-      "var(--codex-linux-left-panel-padding-top,var(--height-toolbar))",
     ],
   },
   "settings-sidebar-surface": {
     requiredMarkers: {
       webviewSettingsPage: [
-        "app-shell-left-panel window-fx-sidebar-surface pointer-events-auto relative flex min-h-0 shrink-0 flex-col overflow-visible",
+        "app-shell-left-panel window-fx-sidebar-surface relative flex min-h-0 shrink-0 flex-col overflow-hidden",
       ],
     },
     forbiddenMarkers: {
       webviewSettingsPage: [
-        "q=h(`app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden`,`w-token-sidebar`)",
+        "app-shell-left-panel relative flex min-h-0 shrink-0 flex-col overflow-hidden",
       ],
     },
   },
-  "avatar-overlay-transparency": {
+  "settings-suggested-prompts": {
     requiredMarkers: {
-      main: [
-        "case`avatarOverlay`:return{...H6({alwaysOnTop:!0,hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0}),backgroundColor:c6,hasShadow:!1,type:n===`linux`?`notification`:void 0};",
-        "title:`Codex Pet Overlay`,width:_1.width,height:_1.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:b0",
-        "D0={width:320,height:131}",
+      webviewGeneralSettings: [
+        /\b[A-Za-z_$][\w$]*=!0/,
+        "settings.agent.ambientSuggestions.rowLabel",
+        "settings.agent.ambientSuggestions.toggleLabel",
+        /if\(![A-Za-z_$][\w$]*\(\{authMethod:[A-Za-z_$][\w$]*,email:[A-Za-z_$][\w$]*\?\.[A-Za-z_$][\w$]*\?\?[A-Za-z_$][\w$]*,plan:[A-Za-z_$][\w$]*\?\.[A-Za-z_$][\w$]*\?\?[A-Za-z_$][\w$]*\}\)\)return null/,
       ],
-      webviewAvatarOverlay: [
-        "codexLinuxEnsureAvatarOverlayTransparent",
-        "codex-linux-avatar-overlay-transparent-style",
-        "html,body,#root{background:transparent!important;background-color:transparent!important;}",
-        "function Pt(){codexLinuxEnsureAvatarOverlayTransparent();let e=(0,Ie.c)(9),",
-        "qe=64",
-        "pe?`whitespace-pre-wrap`:b==null?`line-clamp-4`:void 0",
-        "Nt={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:36,top:56,width:320,height:131},viewport:{width:356,height:320}}",
+      webviewAmbientSuggestionsEligibility: [
+        /function [A-Za-z_$][\w$]*\(\{authMethod:[A-Za-z_$][\w$]*,email:[A-Za-z_$][\w$]*,plan:[A-Za-z_$][\w$]*\}\)\{return [A-Za-z_$][\w$]*===`apikey`\?!0:[A-Za-z_$][\w$]*===`chatgpt`\?/,
+        /\b[A-Za-z_$][\w$]*=\[`plus`,`pro`,`prolite`,`business`,`team`,`self_serve_business_usage_based`\]/,
       ],
     },
     forbiddenMarkers: {
-      main: [
-        "case`avatarOverlay`:return{...H6({alwaysOnTop:!0,platform:n,resizable:!1,thickFrame:!1}),hasShadow:!1};",
-        "title:r.app.getName(),width:_1.width,height:_1.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:b0",
-        "D0={width:276,height:131}",
+      webviewGeneralSettings: [
+        /\b[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\(`2425897452`\)/,
       ],
-      webviewAvatarOverlay: [
-        "qe=32",
-        "pe?`whitespace-pre-wrap`:b==null?`line-clamp-2`:void 0",
-        "Nt={mascot:{left:244,top:191,width:112,height:121},placement:`top-end`,tray:{left:80,top:56,width:276,height:131},viewport:{width:356,height:320}}",
+      webviewAmbientSuggestionsEligibility: [
+        /\b[A-Za-z_$][\w$]*=\[`plus`,`pro`,`business`,`team`,`self_serve_business_usage_based`\]/,
       ],
     },
   },
@@ -493,13 +547,6 @@ export const RETIRED_LINUX_PATCH_MARKERS = {
     "function codexLinuxNormalizeMarkdownRemoteMediaUrl(e)",
     "ke=codexLinuxNormalizeMarkdownRemoteMediaUrl(x)",
   ],
-  webviewUsePlugins: [
-    "function C(e){if(typeof e!==`string`)return null;let t=e.trim();",
-    /queryKey:[$A-Z_a-z][$\w]*\(`read-file-binary`,[$A-Z_a-z][$\w]*\),retry:!1,gcTime:1\/0,staleTime:0/,
-  ],
-  webviewModelSettings: [
-    /function [$A-Z_a-z][$\w]*\([$A-Z_a-z][$\w]*=null\)\{let .*?,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*==null\?null:[$A-Z_a-z][$\w]*\.cwd,[$A-Z_a-z][$\w]*=[$A-Z_a-z][$\w]*\(\{hostId:[$A-Z_a-z][$\w]*,cwd:[$A-Z_a-z][$\w]*,isHostRegistered:[$A-Z_a-z][$\w]*\}\)/,
-  ],
   webviewPluginAvailability: [
     "function codexLinuxPluginHasMcp",
     "function codexLinuxRestartAppServerForPluginMcp",
@@ -509,7 +556,8 @@ export const RETIRED_LINUX_PATCH_MARKERS = {
 
 export const START_SCRIPT_MARKERS = {
   requiredMarkers: [
-    'CODEX_STANDALONE_CLI_PATH="${CODEX_STANDALONE_CLI_PATH:-$HOME/.codex/packages/standalone/current/codex}"',
+    'export CODEX_CLI_PATH="${CODEX_CLI_PATH:-${CODEX_HOME:-$HOME/.codex}/packages/standalone/current/codex}"',
+    '[ -x "$CODEX_CLI_PATH" ] || { echo "Error: CODEX_CLI_PATH is not executable: $CODEX_CLI_PATH" >&2; exit 1; }',
     'export CHROME_DESKTOP="${CHROME_DESKTOP:-Codex.desktop}"',
     'CODEX_DESKTOP_AUTH_FETCH_SOCKET',
     'CODEX_DESKTOP_BROWSER_APPROVAL_SOCKET',
@@ -528,5 +576,9 @@ export const START_SCRIPT_MARKERS = {
     "CODEX_LINUX_REMOTE_CONTROL_DAEMON",
     "app-server daemon",
     "remote-control start",
+    "CODEX_STANDALONE_CLI_PATH",
+    "CODEX_PATCHED_STANDALONE_CLI_PATH",
+    "codex-standalone-patched",
+    "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
   ],
 };

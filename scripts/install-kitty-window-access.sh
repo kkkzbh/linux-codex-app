@@ -96,118 +96,26 @@ else
     state_root="/tmp/codex-plugin-kitty-\$uid"
 fi
 
-alloc_env="\$(python3 - "\$state_root" "\$\$" <<'PY'
-import fcntl
-import json
-import os
-import shlex
-import sys
-import time
-from pathlib import Path
+socket="\$state_root/main.sock"
+mkdir -p "\$state_root"
 
-state_root = Path(sys.argv[1])
-wrapper_pid = int(sys.argv[2])
-adopted_dir = state_root / "adopted"
-registry_path = state_root / "instances.json"
-lock_path = state_root / ".wrapper.lock"
-state_root.mkdir(parents=True, mode=0o700, exist_ok=True)
-adopted_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+if [ -S "\$socket" ]; then
+    if command -v kitten >/dev/null 2>&1 && kitten @ --to "unix:\$socket" ls >/dev/null 2>&1; then
+        if [ "\$#" -eq 0 ]; then
+            exec kitten @ --to "unix:\$socket" launch --type=tab --cwd "\$PWD"
+        fi
+        exec "\$real_kitty" "\$@"
+    fi
+    rm -f "\$socket"
+fi
 
-def process_alive(pid):
-    try:
-        pid = int(pid)
-        if pid <= 0:
-            return False
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except Exception:
-        return False
+export CODEX_KITTY_INSTANCE_ID=ki_singleton_main
+export CODEX_KITTY_INSTANCE_KIND=singleton
+export CODEX_KITTY_SOCKET="\$socket"
 
-def read_registry():
-    try:
-        data = json.loads(registry_path.read_text(encoding="utf-8"))
-        if isinstance(data.get("instances"), list):
-            return data
-    except Exception:
-        pass
-    return {"version": 1, "instances": []}
-
-def write_registry(data):
-    tmp = registry_path.with_name(f"{registry_path.name}.{os.getpid()}.{int(time.time() * 1000)}.tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(registry_path)
-    registry_path.chmod(0o600)
-
-with lock_path.open("w") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    registry = read_registry()
-    live_instances = []
-    used_short_ids = set()
-    for item in registry.get("instances", []):
-        if item.get("status") == "closed":
-            live_instances.append(item)
-            continue
-        pid_live = process_alive(item.get("pid"))
-        socket = item.get("socket")
-        socket_exists = bool(socket and Path(socket).exists())
-        if not pid_live and socket_exists and item.get("kind") == "adopted":
-            try:
-                Path(socket).unlink()
-            except OSError:
-                pass
-            socket_exists = False
-        if pid_live or socket_exists:
-            live_instances.append(item)
-            short_id = item.get("short_id")
-            if short_id:
-                used_short_ids.add(short_id)
-
-    short_id = None
-    for index in range(1, 100):
-        candidate = f"K{index}"
-        candidate_socket = adopted_dir / f"{candidate}.sock"
-        if candidate not in used_short_ids and not candidate_socket.exists():
-            short_id = candidate
-            socket_path = candidate_socket
-            break
-    if short_id is None:
-        raise SystemExit("no available Codex Kitty short id K1..K99")
-
-    now_ms = int(time.time() * 1000)
-    instance_id = f"ki_adopted_{short_id.lower()}_{now_ms}"
-    instance = {
-        "instance_id": instance_id,
-        "short_id": short_id,
-        "kind": "adopted",
-        "socket": str(socket_path),
-        "pid": wrapper_pid,
-        "title": f"Kitty {short_id}",
-        "cwd": os.getcwd(),
-        "status": "running",
-        "created_at_ms": now_ms,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ms / 1000)),
-    }
-    live_instances = [item for item in live_instances if item.get("instance_id") != instance_id]
-    live_instances.append(instance)
-    write_registry({"version": 1, "instances": live_instances})
-
-    print(f"CODEX_KITTY_INSTANCE_ID={shlex.quote(instance_id)}")
-    print(f"CODEX_KITTY_SHORT_ID={shlex.quote(short_id)}")
-    print(f"CODEX_KITTY_SOCKET={shlex.quote(str(socket_path))}")
-PY
-)"
-
-eval "\$alloc_env"
-export CODEX_KITTY_INSTANCE_ID
-export CODEX_KITTY_SHORT_ID
-export CODEX_KITTY_INSTANCE_KIND=adopted
-export CODEX_KITTY_SOCKET
-
-exec "\$real_kitty" \\
-    -o allow_remote_control=socket-only \\
-    --listen-on "unix:\$CODEX_KITTY_SOCKET" \\
+exec "\$real_kitty" \
+    -o allow_remote_control=socket-only \
+    --listen-on "unix:\$socket" \
     "\$@"
 EOF
     chmod +x "$KITTY_WRAPPER_PATH"
@@ -346,14 +254,14 @@ if target_segments is None:
     print("oh-my-posh prompt has no os segment; skipping Kitty prompt marker", file=sys.stderr)
     raise SystemExit(0)
 
-if any(isinstance(seg, dict) and "CODEX_KITTY_SHORT_ID" in str(seg.get("template", "")) for seg in target_segments):
+if any(isinstance(seg, dict) and "CODEX_KITTY_TAB_ID" in str(seg.get("template", "")) for seg in target_segments):
     raise SystemExit(0)
 
 os_index = next(index for index, seg in enumerate(target_segments) if isinstance(seg, dict) and seg.get("type") == "os")
 target_segments.insert(os_index + 1, {
     "foreground": "p:lavender",
     "style": "plain",
-    "template": "{{ if .Env.CODEX_KITTY_SHORT_ID }}[{{ .Env.CODEX_KITTY_SHORT_ID }}] {{ end }}",
+    "template": "{{ if .Env.CODEX_KITTY_TAB_ID }}[{{ .Env.CODEX_KITTY_TAB_ID }}] {{ end }}",
     "type": "text",
 })
 
@@ -374,7 +282,6 @@ if [ "${CODEX_KITTY_WINDOW_ACCESS_DESKTOP:-1}" != "0" ]; then
     install_desktop_overrides
 fi
 
-install_prompt_marker
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$APPLICATIONS_DIR" >/dev/null 2>&1 || true

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "name": "computer-use",
+      "reason": "The upstream MCP server launches a macOS .app executable; Linux uses the installer-owned kde-computer-use plugin."
+    },
+    {
+      "name": "record-and-replay",
+      "reason": "The upstream MCP server launches the macOS-only SkyComputerUseClient executable and has no Linux runtime."
+    }
+  ]
+}

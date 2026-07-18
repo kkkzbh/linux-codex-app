@@ -3,23 +3,28 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   chmodSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import realProcess from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { encodeFrame, FrameDecoder, parseFrame } from "./linux-browser-runtime/frame.mjs";
 import {
+  BROWSER_ONLY_BROWSER_CLIENT_PATCHES,
   CHROME_ONLY_BROWSER_CLIENT_PATCHES,
   COMMON_BROWSER_CLIENT_PATCHES,
 } from "./linux-browser-runtime/browser-client-patches.mjs";
@@ -39,6 +44,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const installerRoot = path.dirname(scriptDir);
 const runtimeDir = path.join(scriptDir, "linux-browser-runtime");
 const chromeFixtureRoot = resolveChromeFixtureRoot();
+const browserFixtureRoot = resolveBrowserFixtureRoot();
+const minifiedIdentifier = String.raw`[$A-Z_a-z][$\w]*`;
+const currentDirectClickMouseMoveRegex = new RegExp(
+  String.raw`async clickPoint\((?<event>${minifiedIdentifier})\)\{[\s\S]*?await this\.ui\.moveMouse\([^)]*\),await this\.dispatchCdpMouseMove\(\{modifiers:\k<event>\.modifiers,point:${minifiedIdentifier},target:${minifiedIdentifier}\}\);[\s\S]*?async dispatchCdpMouseMove\((?<moveEvent>${minifiedIdentifier})\)\{await this\.cdp\.callTarget\(\k<moveEvent>\.target,"Input\.dispatchMouseEvent",\{type:"mouseMoved",x:\k<moveEvent>\.point\.x,y:\k<moveEvent>\.point\.y,button:"none"`,
+);
+const currentFileChooserTimeoutMaxRegex = new RegExp(
+  String.raw`"playwright_wait_for_file_chooser",async\((?<payload>${minifiedIdentifier}),(?<context>${minifiedIdentifier})\)=>\{let (?<tabId>${minifiedIdentifier})=${minifiedIdentifier}\(\k<payload>\.tab_id\),${minifiedIdentifier}=${minifiedIdentifier}\(\{\.\.\.\k<payload>,max:12e4/\* codexFileChooserTimeoutMax \*/\}\);await \k<context>\.cdp\.call\(\k<tabId>,"Page\.enable"\)`,
+);
 
 function resolveChromeFixtureRoot() {
   const candidates = chromeFixtureCandidates();
@@ -67,21 +80,7 @@ function chromeFixtureCandidates() {
   const candidates = [];
 
   addCandidate(candidates, process.env.CODEX_CHROME_PLUGIN_FIXTURE_ROOT);
-  addCandidate(
-    candidates,
-    path.join(
-      os.homedir(),
-      ".local",
-      "share",
-      "codex-app",
-      "current",
-      "resources",
-      "plugins",
-      "openai-bundled",
-      "plugins",
-      "chrome",
-    ),
-  );
+  addVersionedCacheCandidates(candidates, path.join(codexHome, "plugins", "cache", "openai-bundled", "chrome"));
 
   for (const stagedDir of sortedChildDirs(path.join(repoRoot, "staged-installs"))) {
     addCandidate(
@@ -115,7 +114,101 @@ function chromeFixtureCandidates() {
     );
   }
 
-  addVersionedCacheCandidates(candidates, path.join(codexHome, "plugins", "cache", "openai-bundled", "chrome"));
+  addCandidate(
+    candidates,
+    path.join(
+      os.homedir(),
+      ".local",
+      "share",
+      "codex-app",
+      "current",
+      "resources",
+      "plugins",
+      "openai-bundled",
+      "plugins",
+      "chrome",
+    ),
+  );
+
+  return uniquePaths(candidates);
+}
+
+function resolveBrowserFixtureRoot() {
+  const candidates = browserFixtureCandidates();
+  const searched = [];
+
+  for (const candidate of candidates) {
+    searched.push(candidate);
+    if (existsSync(path.join(candidate, "scripts", "browser-client.mjs"))) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    [
+      "Could not find a Browser plugin fixture containing scripts/browser-client.mjs.",
+      "Set CODEX_BROWSER_PLUGIN_FIXTURE_ROOT to an extracted or staged browser plugin root.",
+      "Searched:",
+      ...searched.map((candidate) => `- ${candidate}`),
+    ].join("\n"),
+  );
+}
+
+function browserFixtureCandidates() {
+  const repoRoot = path.dirname(installerRoot);
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  const candidates = [];
+
+  addCandidate(candidates, process.env.CODEX_BROWSER_PLUGIN_FIXTURE_ROOT);
+  addVersionedCacheCandidates(candidates, path.join(codexHome, "plugins", "cache", "openai-bundled", "browser"));
+
+  for (const stagedDir of sortedChildDirs(path.join(repoRoot, "staged-installs"))) {
+    addCandidate(
+      candidates,
+      path.join(stagedDir, "resources", "plugins", "openai-bundled", "plugins", "browser"),
+    );
+  }
+
+  addCandidate(
+    candidates,
+    path.join(installerRoot, "codex-app", "resources", "plugins", "openai-bundled", "plugins", "browser"),
+  );
+
+  for (const probeDir of sortedChildDirs(installerRoot).filter((dir) =>
+    /^\.((plugin|update)-probe)-/.test(path.basename(dir)),
+  )) {
+    addCandidate(
+      candidates,
+      path.join(
+        probeDir,
+        "dmg-extract",
+        "Codex Installer",
+        "Codex.app",
+        "Contents",
+        "Resources",
+        "plugins",
+        "openai-bundled",
+        "plugins",
+        "browser",
+      ),
+    );
+  }
+
+  addCandidate(
+    candidates,
+    path.join(
+      os.homedir(),
+      ".local",
+      "share",
+      "codex-app",
+      "current",
+      "resources",
+      "plugins",
+      "openai-bundled",
+      "plugins",
+      "browser",
+    ),
+  );
 
   return uniquePaths(candidates);
 }
@@ -164,6 +257,20 @@ function makeTempDir(prefix) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForChildExit(child, timeoutMs = 5_000) {
+  if (child.exitCode != null || child.signalCode != null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for child process to exit")), timeoutMs);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
 }
 
 function frameMessage(message) {
@@ -366,7 +473,7 @@ async function testNativeHostRegistryAndRequestIds() {
     clientB.destroy();
   } finally {
     child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("exit", resolve));
+    await waitForChildExit(child);
     await sleep(50);
     assert.equal(readBrowserBackendRegistry(registryPath).backends.length, 0);
     rmSync(tempDir, { recursive: true, force: true });
@@ -390,7 +497,7 @@ async function testNativeHostHandlesChromePing() {
     assert.deepEqual(response, { jsonrpc: "2.0", id: 21, result: "pong" });
   } finally {
     child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("exit", resolve));
+    await waitForChildExit(child);
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
@@ -418,44 +525,47 @@ async function testNativeHostTimesOutMissingChromeResponse() {
     assert.equal(response.id, 11);
     assert.match(response.error?.message, /Chrome native host request timed out: slow\.test/);
     client.destroy();
+    const exit = await waitForChildExit(child);
+    assert.equal(exit.code, 1);
+    await waitFor(() => readBrowserBackendRegistry(registryPath).backends.length === 0, "Chrome native host timeout registry cleanup");
   } finally {
     child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("exit", resolve));
+    await waitForChildExit(child);
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
 function copyAndPatchChromeFixture(tempDir) {
   const chromeRoot = path.join(tempDir, "chrome");
-  const result = spawnSync(process.execPath, [
-    "-e",
-    `
-      const fs = require("node:fs");
-      fs.cpSync(${JSON.stringify(chromeFixtureRoot)}, ${JSON.stringify(chromeRoot)}, { recursive: true });
-    `,
-  ]);
-  if (result.status !== 0) {
-    throw new Error("Failed to copy Chrome plugin fixture");
-  }
+  copyFixtureTree(chromeFixtureRoot, chromeRoot);
 
   const clientPath = path.join(chromeRoot, "scripts", "browser-client.mjs");
   const runningCheckPath = path.join(chromeRoot, "scripts", "chrome-is-running.js");
   const manifestCheckPath = path.join(chromeRoot, "scripts", "check-native-host-manifest.js");
   const installManifestPath = path.join(chromeRoot, "scripts", "installManifest.mjs");
   const skillPath = path.join(chromeRoot, "skills", "control-chrome", "SKILL.md");
+  const fileUploadsDocPath = path.join(chromeRoot, "docs", "file-uploads.md");
+  const uploadTroubleshootingDocPath = path.join(chromeRoot, "docs", "chrome-file-upload-troubleshooting.md");
+  normalizeChromeInstallManifestFixture(installManifestPath);
   if (
     readFileSync(clientPath, "utf8").includes("CODEX_BROWSER_BACKENDS_REGISTRY") &&
     readFileSync(clientPath, "utf8").includes("browserAutomation") &&
     readFileSync(clientPath, "utf8").includes("codexLinuxChromeBackendAllowlist") &&
+    readFileSync(clientPath, "utf8").includes("codexFileChooserTimeoutMax") &&
     !/globalThis\.nodeRepl|[$A-Z_a-z][$\w]*\.nodeRepl|outside node repl|privilegedNodeRepl/.test(
       readFileSync(clientPath, "utf8"),
     ) &&
     /[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/.test(readFileSync(clientPath, "utf8")) &&
     readFileSync(runningCheckPath, "utf8").includes("isLinuxExtensionCapableChromeCommand") &&
     readFileSync(manifestCheckPath, "utf8").includes('process.platform === "linux"') &&
+    readFileSync(manifestCheckPath, "utf8").includes("getExpectedLinuxHostConfig(manifest") &&
     readFileSync(installManifestPath, "utf8").includes("browserAutomationPath") &&
+    readFileSync(installManifestPath, "utf8").includes("t.appServerRuntimePaths") &&
+    readFileSync(installManifestPath, "utf8").includes("Missing staged Chrome extension host") &&
     readFileSync(skillPath, "utf8").includes("Visible Tool Surface") &&
-    !/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(readFileSync(skillPath, "utf8"))
+    !/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(readFileSync(skillPath, "utf8")) &&
+    readFileSync(fileUploadsDocPath, "utf8").includes("Chrome file chooser waits honor `timeoutMs`") &&
+    readFileSync(uploadTroubleshootingDocPath, "utf8").includes("Use this only after a chooser opened")
   ) {
     return chromeRoot;
   }
@@ -471,19 +581,105 @@ function copyAndPatchChromeFixture(tempDir) {
   return chromeRoot;
 }
 
+function normalizeChromeInstallManifestFixture(installManifestPath) {
+  let source = readFileSync(installManifestPath, "utf8");
+  if (
+    source.includes("nodeReplPath") ||
+    source.includes("Missing staged Chrome extension host") ||
+    !source.includes("browserAutomationPath") ||
+    !source.includes("t.appServerRuntimePaths")
+  ) {
+    return;
+  }
+
+  source = source.replaceAll("browserAutomationPath", "nodeReplPath");
+  source = source.replace(
+    `var N=(t,e)=>{if(process.platform==="linux"){let o=e?.nodeReplPath;if(typeof o!=="string"||!o.trim())throw new Error("Missing staged nodeReplPath for Linux Chrome native host install");let n=P.resolve(P.dirname(o),"plugins","openai-bundled","plugins","chrome"),r=l(n);if(!A(r))throw new Error(\`Missing staged Chrome extension host at \${r}\`);return n}let i=P.resolve(t).split(P.sep),a=i.lastIndexOf("cache");return a<1||i[a-1]!=="plugins"||i.length<=a+3?t:P.resolve(t,"..","latest")};`,
+    `var N=t=>{let e=P.resolve(t).split(P.sep),o=e.lastIndexOf("cache");return o<1||e[o-1]!=="plugins"||e.length<=o+3?t:P.resolve(t,"..","latest")};`,
+  );
+  source = source.replace(
+    `var Pt=async t=>{let e=N(D.resolve(import.meta.dirname,".."),t.appServerRuntimePaths);`,
+    `var Pt=async t=>{let e=N(D.resolve(import.meta.dirname,".."));`,
+  );
+  writeFileSync(installManifestPath, source);
+}
+
+function writeFakeChromeExtensionHost(chromeRoot) {
+  const hostDir = path.join(chromeRoot, "extension-host", "linux", process.arch);
+  mkdirSync(hostDir, { recursive: true });
+  const hostPath = path.join(hostDir, "extension-host");
+  writeFileSync(hostPath, "#!/bin/sh\nexit 0\n");
+  chmodSync(hostPath, 0o755);
+  return hostPath;
+}
+
+function copyAndPatchBrowserFixture(tempDir) {
+  const browserRoot = path.join(tempDir, "browser");
+  copyFixtureTree(browserFixtureRoot, browserRoot);
+
+  const patchResult = spawnSync(process.execPath, [path.join(scriptDir, "patch-browser-use-plugin.mjs"), browserRoot], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if (patchResult.status !== 0) {
+    throw new Error([patchResult.stdout, patchResult.stderr].filter(Boolean).join("\n"));
+  }
+
+  return browserRoot;
+}
+
+function copyFixtureTree(sourceRoot, destinationRoot) {
+  const resolvedSourceRoot = realpathSync(sourceRoot);
+  assert.equal(statSync(resolvedSourceRoot).isDirectory(), true, `fixture source must be a directory: ${sourceRoot}`);
+  cpSync(resolvedSourceRoot, destinationRoot, {
+    recursive: true,
+    dereference: true,
+    errorOnExist: true,
+    force: false,
+  });
+  assert.equal(lstatSync(destinationRoot).isSymbolicLink(), false, `fixture copy must own its root: ${destinationRoot}`);
+  assert.notEqual(realpathSync(destinationRoot), resolvedSourceRoot, `fixture copy escaped to its source: ${sourceRoot}`);
+  return destinationRoot;
+}
+
+function testFixtureCopiesOwnRootSymlinkTargets() {
+  const tempDir = makeTempDir("codex-browser-fixture-copy-");
+  try {
+    const sourceRoot = path.join(tempDir, "source");
+    const sourceLink = path.join(tempDir, "source-link");
+    const destinationRoot = path.join(tempDir, "destination");
+    const markerPath = "fixture-marker.txt";
+    mkdirSync(sourceRoot);
+    writeFileSync(path.join(sourceRoot, markerPath), "source\n");
+    symlinkSync(sourceRoot, sourceLink, "dir");
+
+    copyFixtureTree(sourceLink, destinationRoot);
+    writeFileSync(path.join(destinationRoot, markerPath), "destination\n");
+
+    assert.equal(lstatSync(destinationRoot).isSymbolicLink(), false);
+    assert.equal(readFileSync(path.join(sourceRoot, markerPath), "utf8"), "source\n");
+    assert.equal(readFileSync(path.join(destinationRoot, markerPath), "utf8"), "destination\n");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols() {
   const syntheticSource = [
     'function alpha(){let bridge=globalThis.nodeRepl?.nativePipe;return bridge==null||typeof bridge.createConnection!="function"?null:bridge}',
     'function beta(e){let mode=globalThis.nodeRepl?.env.MODE;return e.nodeRepl?.setResponseMeta({mode}),mode}',
     'function gamma({internalBuild:e=!1,privilegedNodeRepl:t=readGlobal()}={}){if(t==null)return fail("Browser security unavailable outside node repl");return t}',
-    'async function connectBackend(sock,make){let api=null,phase="pipe-connect";try{let transport=await NativePipe.create(sock);api=make(transport),phase="backend-info-request";let info=await withTimeout(api.getInfo()),full=await enrich(info).catch(err=>(log(err),info));return{browser:{id:crypto.randomUUID().substring(8),api:api,info:await augment(full)}}}catch(problem){return await api?.close(),log(problem),{failure:`${phase}/${fmt(problem)}`}}}',
+    'async function connectBackend(sock,make){let api=null,phase="pipe-connect";try{let transport=await NativePipe.create(sock);api=make(transport),phase="backend-info-request";let info=await withTimeout(api.getInfo()),full=await enrich(info).catch(err=>(log(err),info));return{browser:{id:crypto.randomUUID().substring(8),api:api,info:await augment(full),pipe:sock}}}catch(problem){return await api?.close(),log(problem),{failure:`${phase}/${fmt(problem)}`}}}',
     'var discover=()=>platform()==="win32"?readWin():readLinux(),readLinux=async()=>(await readdir(prefix)).map(entry=>Path.resolve(prefix,entry)),readWin=async()=>{let root="\\\\.\\pipe\\";return(await readdir(root)).map(winEntry=>Path.resolve(root,winEntry)).filter(candidate=>candidate.startsWith(prefix))};',
     'let pending=this.api.moveMouse({tabId:tab,...opts.waitForArrival===!1?{waitForArrival:!1}:{},x:px,y:py});if(opts.waitForArrival===!1){pending.catch(()=>{});return}await pending',
     'async clickPoint(event){let tab=normalize(event.tabId),timeout=normalizeTimeout({timeout_ms:event.timeoutMs}),button=event.button??"left",targets=event.loadTarget==null||!isLoad(event.loadTarget)?[tab]:[event.loadTarget,tab],wait=Promise.all(targets.map(async target=>this.cdp.waitForPageLoadEvent(target,{timeoutMs:timeout}))),ignored=wait.catch(()=>{});try{await this.dispatchMouseMove(tab,event.point,event.modifiers);for(let idx=1;idx<=event.clickCount;idx+=1)await this.dispatchMouseDown({button:button,clickCount:idx,modifiers:event.modifiers,point:event.point,tabId:tab}),await this.dispatchMouseUp({button:button,clickCount:idx,modifiers:event.modifiers,point:event.point,tabId:tab})}catch(err){throw await ignored,err}await wait}async dispatchMouseDown(',
     'var profileRoot=resolve(homeDir(),platform()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");',
+    'var waitFileChooser=command("playwright_wait_for_file_chooser",async(payload,context)=>{let tab=normalizeTab(payload.tab_id),timeout=normalizeTimeout(payload);await context.cdp.call(tab,"Page.enable"),await context.cdp.call(tab,"Page.setInterceptFileChooserDialog",{enabled:!0});try{let event=await context.cdp.waitForEvent(tab,predicate,{timeoutMs:timeout,timeoutMessage:`Timed out after ${timeout}ms waiting for file chooser.`}),id=crypto.randomUUID(),chooser=extract(tab,event);return context.cdp.fileChoosersById.set(id,chooser),{file_chooser_id:id,is_multiple:chooser.isMultiple}}finally{await context.cdp.call(tab,"Page.setInterceptFileChooserDialog",{enabled:!1}).catch(()=>{})}});',
+    'var allowed=new Set(["about:blank"]);function isAllowed(url){if(allowed.has(url))return!0;let parsed;try{parsed=new URL(url)}catch{return!1}return parsed.protocol==="http:"||parsed.protocol==="https:"}',
   ].join(";");
 
-  const patched = patchSource(syntheticSource, COMMON_BROWSER_CLIENT_PATCHES, "synthetic browser-client");
+  const browserPatches = [...COMMON_BROWSER_CLIENT_PATCHES, ...BROWSER_ONLY_BROWSER_CLIENT_PATCHES];
+  const patched = patchSource(syntheticSource, browserPatches, "synthetic browser-client");
   for (const marker of [
     "globalThis.__codexNativePipe",
     "globalThis.browserAutomation",
@@ -492,16 +688,40 @@ function testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols() {
     "browser backend info request timed out",
     "CODEX_BROWSER_BACKENDS_REGISTRY",
     "waitForArrival:!1",
-    "this.ui.moveMouse",
     '==="linux"?".config/google-chrome"',
+    'protocol==="file:"',
+    "codexFileChooserTimeoutMax",
   ]) {
     assert.equal(patched.includes(marker), true, `patched source should include ${marker}`);
   }
 
-  for (const patch of COMMON_BROWSER_CLIENT_PATCHES) {
+  for (const patch of browserPatches) {
     assert.equal(typeof patch.locatorStrategy, "string", `${patch.label} should declare a locator strategy`);
     assert.equal(typeof patch.risk, "string", `${patch.label} should declare a drift risk`);
   }
+
+  const policySyntheticSource =
+    'var allowed=new Set(["about:blank"]);function isAllowed(url){if(allowed.has(url))return!0;let parsed;try{parsed=new URL(url)}catch{return!1}return parsed.protocol==="http:"||parsed.protocol==="https:"}';
+  const policyPatched = patchSource(
+    policySyntheticSource,
+    BROWSER_ONLY_BROWSER_CLIENT_PATCHES,
+    "synthetic Browser file URL policy",
+  );
+  const policyProbe = new Function(
+    "URL",
+    `${policyPatched}; return {
+      aboutBlank: isAllowed("about:blank"),
+      http: isAllowed("http://127.0.0.1:3000/"),
+      file: isAllowed("file:///tmp/codex-preview.html"),
+      data: isAllowed("data:text/html,blocked"),
+    };`,
+  );
+  assert.deepEqual(policyProbe(URL), {
+    aboutBlank: true,
+    http: true,
+    file: true,
+    data: false,
+  });
 
   const chromeSyntheticSource =
     'function available(){let value=readEnv(KEY);return value==null?null:split(value).filter(isKnown)}';
@@ -536,7 +756,21 @@ async function testPatchedBrowserClientStaticMarkers() {
     assert.equal(clientSource.includes("NodeRepl"), false);
     assert.equal(clientSource.includes("outside node repl"), false);
     assert.match(clientSource, /[$A-Z_a-z][$\w]*\(\)==="linux"\?"\.config\/google-chrome"/);
-    assert.equal(clientSource.includes('type:"mouseMoved",x:t.point.x,y:t.point.y,button:"none"'), true);
+    assert.match(clientSource, currentDirectClickMouseMoveRegex);
+    assert.match(clientSource, currentFileChooserTimeoutMaxRegex);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testPatchedInAppBrowserClientAllowsFileUrls() {
+  const tempDir = makeTempDir("codex-iab-browser-client-static-");
+  try {
+    const browserRoot = copyAndPatchBrowserFixture(tempDir);
+    const clientSource = readFileSync(path.join(browserRoot, "scripts", "browser-client.mjs"), "utf8");
+    assert.equal(clientSource.includes('protocol==="file:"'), true);
+    assert.equal(clientSource.includes("cannot visit the requested page because its URL is blocked by the"), true);
+    assert.equal(clientSource.includes("URL policy"), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -600,6 +834,200 @@ EOF
   }
 }
 
+async function testPatchedChromeInstallManifestUsesStagedPluginRoot() {
+  const tempDir = makeTempDir("codex-chrome-install-manifest-");
+  try {
+    const cacheChromeRoot = copyAndPatchChromeFixture(tempDir);
+    writeFakeChromeExtensionHost(cacheChromeRoot);
+    const resourcesDir = path.join(tempDir, "staged", "resources");
+    const stagedChromeRoot = path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome");
+    copyFixtureTree(cacheChromeRoot, stagedChromeRoot);
+
+    for (const helper of ["codex", "node", "browser_automation"]) {
+      const helperPath = path.join(resourcesDir, helper);
+      writeFileSync(helperPath, "#!/bin/sh\nexit 0\n");
+      chmodSync(helperPath, 0o755);
+    }
+
+    const homeDir = path.join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    const installScript = path.join(cacheChromeRoot, "scripts", "installManifest.mjs");
+    const installResult = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+          const { install } = await import(${JSON.stringify(pathToFileURL(installScript).href)});
+          await install({
+            appServerRuntimePaths: {
+              codexCliPath: ${JSON.stringify(path.join(resourcesDir, "codex"))},
+              nodePath: ${JSON.stringify(path.join(resourcesDir, "node"))},
+              browserAutomationPath: ${JSON.stringify(path.join(resourcesDir, "browser_automation"))},
+            },
+          });
+        `,
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: homeDir },
+        stdio: "pipe",
+      },
+    );
+    assert.equal(installResult.status, 0, installResult.stderr);
+
+    const manifestPath = path.join(homeDir, ".config", "google-chrome", "NativeMessagingHosts", "com.openai.codexextension.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const expectedHostPath = path.join(stagedChromeRoot, "extension-host", "linux", process.arch, "extension-host");
+    assert.equal(manifest.path, expectedHostPath);
+
+    const configPath = path.join(path.dirname(expectedHostPath), "extension-host-config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.equal(config.browserClientPath, path.join(stagedChromeRoot, "scripts", "browser-client.mjs"));
+    assert.equal(config.codexCliPath, path.join(resourcesDir, "codex"));
+    assert.equal(config.nodePath, path.join(resourcesDir, "node"));
+    assert.equal(config.browserAutomationPath, path.join(resourcesDir, "browser_automation"));
+
+    const checkerPath = path.join(stagedChromeRoot, "scripts", "check-native-host-manifest.js");
+    const validCheck = spawnSync(process.execPath, [checkerPath, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: homeDir },
+      stdio: "pipe",
+    });
+    assert.equal(validCheck.status, 0, validCheck.stderr);
+    assert.equal(JSON.parse(validCheck.stdout).correct, true);
+
+    const cacheRootCheck = spawnSync(
+      process.execPath,
+      [path.join(cacheChromeRoot, "scripts", "check-native-host-manifest.js"), "--json"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: homeDir },
+        stdio: "pipe",
+      },
+    );
+    assert.equal(cacheRootCheck.status, 0, cacheRootCheck.stderr);
+    assert.equal(JSON.parse(cacheRootCheck.stdout).correct, true);
+
+    const cacheHostPath = path.join(cacheChromeRoot, "extension-host", "linux", process.arch, "extension-host");
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          ...manifest,
+          path: cacheHostPath,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const cacheConfigPath = path.join(path.dirname(cacheHostPath), "extension-host-config.json");
+    writeFileSync(
+      cacheConfigPath,
+      `${JSON.stringify(
+        {
+          browserClientPath: path.join(cacheChromeRoot, "scripts", "browser-client.mjs"),
+          codexCliPath: path.join(tempDir, "old", "codex"),
+          nodePath: path.join(tempDir, "old", "node"),
+          browserAutomationPath: path.join(tempDir, "old", "browser_automation"),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const staleCheck = spawnSync(process.execPath, [checkerPath, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: homeDir },
+      stdio: "pipe",
+    });
+    assert.equal(staleCheck.status, 1, staleCheck.stderr);
+    const staleResult = JSON.parse(staleCheck.stdout);
+    assert.equal(staleResult.correct, false);
+    assert.equal(staleResult.hostPathMatchesExpected, false);
+    assert.equal(staleResult.hostConfigMatchesExpected, false);
+    assert.match(staleResult.problem, /staged Chrome extension host/);
+    assert.match(staleResult.problem, /staged runtime paths/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testPatchedChromeInstallManifestFailsWithoutStagedPluginRoot() {
+  const tempDir = makeTempDir("codex-chrome-install-manifest-missing-");
+  try {
+    const cacheChromeRoot = copyAndPatchChromeFixture(tempDir);
+    const resourcesDir = path.join(tempDir, "staged", "resources");
+    mkdirSync(resourcesDir, { recursive: true });
+    for (const helper of ["codex", "node", "browser_automation"]) {
+      const helperPath = path.join(resourcesDir, helper);
+      writeFileSync(helperPath, "#!/bin/sh\nexit 0\n");
+      chmodSync(helperPath, 0o755);
+    }
+
+    const homeDir = path.join(tempDir, "home");
+    mkdirSync(homeDir, { recursive: true });
+    const installScript = path.join(cacheChromeRoot, "scripts", "installManifest.mjs");
+    const installResult = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+          const { install } = await import(${JSON.stringify(pathToFileURL(installScript).href)});
+          await install({
+            appServerRuntimePaths: {
+              codexCliPath: ${JSON.stringify(path.join(resourcesDir, "codex"))},
+              nodePath: ${JSON.stringify(path.join(resourcesDir, "node"))},
+              browserAutomationPath: ${JSON.stringify(path.join(resourcesDir, "browser_automation"))},
+            },
+          });
+        `,
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: homeDir },
+        stdio: "pipe",
+      },
+    );
+    assert.notEqual(installResult.status, 0);
+    assert.match(installResult.stderr, /Missing staged Chrome extension host/);
+    assert.equal(
+      existsSync(path.join(homeDir, ".config", "google-chrome", "NativeMessagingHosts", "com.openai.codexextension.json")),
+      false,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function testPatchedChromeInstallManifestPatchLocators() {
+  const chromeRoot = copyAndPatchChromeFixture(makeTempDir("codex-chrome-install-locator-"));
+  try {
+    const installSource = readFileSync(path.join(chromeRoot, "scripts", "installManifest.mjs"), "utf8");
+    const manifestCheckSource = readFileSync(path.join(chromeRoot, "scripts", "check-native-host-manifest.js"), "utf8");
+    assert.equal(installSource.includes("t.appServerRuntimePaths"), true);
+    assert.equal(installSource.includes("Missing staged Chrome extension host"), true);
+    assert.equal(manifestCheckSource.includes("getExpectedLinuxHostConfig(manifest"), true);
+    assert.equal(manifestCheckSource.includes("hostConfigMatchesExpected"), true);
+  } finally {
+    rmSync(path.dirname(chromeRoot), { recursive: true, force: true });
+  }
+}
+
+function testPatchedChromePluginPatcherIsIdempotent() {
+  const chromeRoot = copyAndPatchChromeFixture(makeTempDir("codex-chrome-patch-idempotent-"));
+  try {
+    const patchResult = spawnSync(process.execPath, [path.join(scriptDir, "patch-chrome-plugin.mjs"), chromeRoot], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    assert.equal(patchResult.status, 0, [patchResult.stdout, patchResult.stderr].filter(Boolean).join("\n"));
+  } finally {
+    rmSync(path.dirname(chromeRoot), { recursive: true, force: true });
+  }
+}
+
 async function testPatchedChromeSkillUsesBrowserAutomationToolSurface() {
   const tempDir = makeTempDir("codex-chrome-skill-guidance-");
   try {
@@ -616,6 +1044,39 @@ async function testPatchedChromeSkillUsesBrowserAutomationToolSurface() {
     assert.equal(skillSource.includes("mcp__browser_automation__js"), true);
     assert.equal(skillSource.includes("browserAutomation.write"), true);
     assert.equal(/node_repl|Node REPL|mcp__node_repl|nodeRepl|REPL/.test(skillSource), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function testPatchedChromeFileUploadDocsDistinguishChooserTimeout() {
+  const tempDir = makeTempDir("codex-chrome-upload-docs-");
+  try {
+    const chromeRoot = copyAndPatchChromeFixture(tempDir);
+    const fileUploadsDoc = readFileSync(path.join(chromeRoot, "docs", "file-uploads.md"), "utf8");
+    const troubleshootingDoc = readFileSync(
+      path.join(chromeRoot, "docs", "chrome-file-upload-troubleshooting.md"),
+      "utf8",
+    );
+
+    assert.equal(fileUploadsDoc.includes("Chrome file chooser waits honor `timeoutMs`"), true);
+    assert.equal(fileUploadsDoc.includes("input.value"), true);
+    assert.equal(fileUploadsDoc.includes("Do not treat unreadable or empty `input.files`"), true);
+    assert.equal(
+      fileUploadsDoc.includes("Do not tell the user to enable Chrome file URL access for that timeout alone"),
+      true,
+    );
+    assert.equal(fileUploadsDoc.includes("chooser.setFiles(...)` fails with a Chrome permission"), true);
+    assert.equal(
+      troubleshootingDoc.includes("If file upload fails while setting files through a file chooser"),
+      false,
+    );
+    assert.equal(troubleshootingDoc.includes("Use this only after a chooser opened"), true);
+    assert.equal(troubleshootingDoc.includes("Allow access to file URLs"), true);
+    assert.equal(
+      troubleshootingDoc.includes('Do not use this permission prompt for `waitForEvent("filechooser")` timeouts'),
+      true,
+    );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -733,10 +1194,17 @@ await testRegistryRegisterAndPrune();
 await testNativeHostRegistryAndRequestIds();
 await testNativeHostHandlesChromePing();
 await testNativeHostTimesOutMissingChromeResponse();
+testFixtureCopiesOwnRootSymlinkTargets();
 testBrowserClientPatchLocatorsPreserveRenamedMinifiedSymbols();
 await testPatchedBrowserClientStaticMarkers();
+await testPatchedInAppBrowserClientAllowsFileUrls();
 await testPatchedChromeRunningCheckerIgnoresExtensionlessLinuxChrome();
+await testPatchedChromeInstallManifestUsesStagedPluginRoot();
+await testPatchedChromeInstallManifestFailsWithoutStagedPluginRoot();
+testPatchedChromeInstallManifestPatchLocators();
+testPatchedChromePluginPatcherIsIdempotent();
 await testPatchedChromeSkillUsesBrowserAutomationToolSurface();
+testPatchedChromeFileUploadDocsDistinguishChooserTimeout();
 testPatchedBrowserSkillUsesBrowserAutomationToolSurface();
 testPatchedBrowserManifestUsesBrowserAutomationKeyword();
 await testPatchedBrowserClientRegistryDiscovery();

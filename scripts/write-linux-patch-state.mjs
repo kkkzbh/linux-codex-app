@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -55,7 +54,7 @@ function main() {
     return;
   }
 
-  const workDir = mkdtempSync(path.join(os.tmpdir(), "codex-linux-patch-state-"));
+  const workDir = mkdtempSync(path.join(resourcesDir, ".codex-linux-patch-state-"));
   const extractDir = path.join(workDir, "app");
 
   try {

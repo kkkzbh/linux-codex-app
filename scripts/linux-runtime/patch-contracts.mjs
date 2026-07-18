@@ -7,12 +7,6 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "high",
     reason: "The upstream open-target registry is private bundle state and has no stable external extension point.",
   },
-  "markdown-local-media": {
-    placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact renderer helper anchors",
-    risk: "high",
-    reason: "Local markdown image path resolution is webview-private behavior.",
-  },
   "generated-output-artifacts": {
     placement: PRIVATE_BUNDLE,
     locatorStrategy: "retained current-upstream exact local-conversation artifact extraction anchors",
@@ -37,11 +31,11 @@ export const LINUX_PATCH_CONTRACTS = {
     risk: "medium",
     reason: "The standalone settings route sidebar is compiled into a private webview settings page chunk.",
   },
-  "avatar-overlay-transparency": {
+  "settings-suggested-prompts": {
     placement: PRIVATE_BUNDLE,
-    locatorStrategy: "retained current-upstream exact window/background style markers",
+    locatorStrategy: "retained current-upstream exact General settings feature-flag and ambient eligibility anchors",
     risk: "medium",
-    reason: "The avatar overlay is controlled by bundled window and webview styles.",
+    reason: "Suggested prompts settings visibility and Pro Lite eligibility are private webview state.",
   },
   "browser-chrome": {
     placement: PRIVATE_BUNDLE,

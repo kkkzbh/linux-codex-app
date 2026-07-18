@@ -1,7 +1,7 @@
 {
   "name": "kitty",
   "version": "0.1.14",
-  "description": "Linux kitty terminal tools for Codex, using numbered managed and adopted kitty remote-control sockets for terminal listing, unified input, and screen reads.",
+  "description": "Linux kitty terminal tools for Codex, using one singleton kitty OS window with tab selectors for terminal listing, unified input, and screen reads.",
   "author": {
     "name": "Codex Linux Installer"
   },
@@ -19,8 +19,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Kitty",
-    "shortDescription": "Send input to and inspect numbered kitty terminals",
-    "longDescription": "Kitty gives Codex Linux-native terminal tools for using visible numbered kitty terminals such as K1. The model-facing interface exposes kitty_list for available terminals and windows, kitty_open for opening a terminal without sending input, kitty_send for shell commands, raw text, and key input with screen feedback, and kitty_read for the current terminal screen. Missing K-number targets are created as managed kitty instances, while future user-opened kitty launches can still be adopted through the user-level wrapper. Closed, unreachable, and windowless socket entries are pruned so user-closed terminals disappear from the model-facing list and do not block later reuse of the same K-number. It uses kitty's remote-control socket interface and does not change the user's global kitty configuration, use TCP sockets, retroactively adopt old terminals without sockets, steal focus when opening managed terminals, or inject hidden status commands into the visible terminal. On KWin, managed opens also best-effort restore focus to the previously active window if the terminal is activated anyway.",
+    "shortDescription": "Send input to and inspect singleton kitty tabs",
+    "longDescription": "Kitty gives Codex Linux-native terminal tools for using one visible singleton kitty OS window. The model-facing interface exposes kitty_list for available tabs and windows, kitty_open for opening a new tab without sending input, kitty_send for shell commands, raw text, and key input with screen feedback, and kitty_read for the current terminal screen. Human-facing short_id values are tab selectors such as T3, while window_id precisely targets one shell window. It uses kitty's remote-control socket interface at /run/user/<uid>/codex/plugins/kitty/main.sock and does not use TCP sockets, prompt text, or window titles to infer state.",
     "developerName": "Codex Linux Installer",
     "category": "Productivity",
     "capabilities": [
@@ -32,10 +32,10 @@
     "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
     "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
     "defaultPrompt": [
-      "Send a command to K1",
+      "Send a command to T1",
       "Open a kitty terminal",
       "List kitty windows",
-      "Read the K1 terminal screen"
+      "Read the T1 terminal screen"
     ],
     "brandColor": "#6C4BD8",
     "composerIcon": "./assets/kitty.png",

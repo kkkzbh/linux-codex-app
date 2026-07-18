@@ -37,12 +37,12 @@ export const browserAutomationRuntimeNameFeature = {
   version: 1,
   requiredMarkers: FEATURE_MARKERS["browser-automation-runtime-name"].requiredMarkers,
   forbiddenMarkers: FEATURE_MARKERS["browser-automation-runtime-name"].forbiddenMarkers,
-  apply(bundleSources) {
+  apply(bundleSources, context) {
     if (this.isApplied(bundleSources)) {
       return bundleSources;
     }
 
-    return {
+    let sources = {
       ...bundleSources,
       main: replaceRuntimeNameTokens(bundleSources.main),
       worker: replaceRequiredRuntimeNames(bundleSources.worker, "worker browser automation runtime"),
@@ -66,6 +66,18 @@ export const browserAutomationRuntimeNameFeature = {
         { appliedMarkers: ["e.invocation.server===`browser_automation`"] },
       ),
     };
+    if (typeof context?.syncSharedBundleSource === "function") {
+      for (const sourceKey of [
+        "webviewCoreSource",
+        "webviewAppServerManagerSignals",
+        "webviewDebugModal",
+        "webviewLocalConversationThread",
+        "webviewSplitItemsIntoRenderGroups",
+      ]) {
+        sources = context.syncSharedBundleSource(sources, sourceKey, sources[sourceKey]);
+      }
+    }
+    return sources;
   },
   verify(bundleSources) {
     for (const [sourceKey, markers] of Object.entries(this.requiredMarkers)) {

@@ -23,13 +23,13 @@ function replaceBrowserAutomationGlobal(source) {
   return source
     .replaceAll('"nodeRepl"in globalThis&&globalThis.nodeRepl', '"browserAutomation"in globalThis&&globalThis.browserAutomation')
     .replaceAll("globalThis.nodeRepl", "globalThis.browserAutomation")
-    .replaceAll("e.nodeRepl", "e.browserAutomation")
+    .replace(new RegExp(String.raw`(${IDENTIFIER})\.nodeRepl\b`, "g"), "$1.browserAutomation")
     .replaceAll("privilegedNodeRepl", "privilegedBrowserAutomation")
     .replaceAll("outside node repl", "outside browser automation");
 }
 
 const backendInfoRequestRegex = new RegExp(
-  String.raw`async function (?<fn>${IDENTIFIER})\((?<socketPath>${IDENTIFIER}),(?<createApi>${IDENTIFIER})\)\{let (?<api>${IDENTIFIER})=null,(?<phase>${IDENTIFIER})="pipe-connect";try\{let (?<transport>${IDENTIFIER})=await (?<nativePipeClass>${IDENTIFIER})\.create\(\k<socketPath>\);\k<api>=\k<createApi>\(\k<transport>\),\k<phase>="backend-info-request";let (?<info>${IDENTIFIER})=await (?<getInfoWithTimeout>${IDENTIFIER})\(\k<api>\.getInfo\(\)\),(?<enrichedInfo>${IDENTIFIER})=await (?<enrichInfo>${IDENTIFIER})\(\k<info>\)\.catch\((?<enrichError>${IDENTIFIER})=>\((?<logError>${IDENTIFIER})\(\k<enrichError>\),\k<info>\)\);return\{browser:\{id:crypto\.randomUUID\(\)\.substring\(8\),api:\k<api>,info:await (?<augmentInfo>${IDENTIFIER})\(\k<enrichedInfo>\)\}\}\}catch\((?<caughtError>${IDENTIFIER})\)\{return await \k<api>\?\.close\(\),\k<logError>\(\k<caughtError>\),\{failure:\`\$\{\k<phase>\}/\$\{(?<formatError>${IDENTIFIER})\(\k<caughtError>\)\}\`\}\}\}`,
+  String.raw`async function (?<fn>${IDENTIFIER})\((?<socketPath>${IDENTIFIER}),(?<createApi>${IDENTIFIER})\)\{let (?<api>${IDENTIFIER})=null,(?<phase>${IDENTIFIER})="pipe-connect";try\{let (?<transport>${IDENTIFIER})=await (?<nativePipeClass>${IDENTIFIER})\.create\(\k<socketPath>\);\k<api>=\k<createApi>\(\k<transport>\),\k<phase>="backend-info-request";let (?<info>${IDENTIFIER})=await (?<getInfoWithTimeout>${IDENTIFIER})\(\k<api>\.getInfo\(\)\),(?<enrichedInfo>${IDENTIFIER})=await (?<enrichInfo>${IDENTIFIER})\(\k<info>\)\.catch\((?<enrichError>${IDENTIFIER})=>\((?<logError>${IDENTIFIER})\(\k<enrichError>\),\k<info>\)\);return\{browser:\{id:crypto\.randomUUID\(\)\.substring\(8\),api:\k<api>,info:await (?<augmentInfo>${IDENTIFIER})\(\k<enrichedInfo>\),pipe:\k<socketPath>\}\}\}catch\((?<caughtError>${IDENTIFIER})\)\{return await \k<api>\?\.close\(\),\k<logError>\(\k<caughtError>\),\{failure:\`\$\{\k<phase>\}/\$\{(?<formatError>${IDENTIFIER})\(\k<caughtError>\)\}\`\}\}\}`,
 );
 
 function replaceBackendInfoRequest(...args) {
@@ -52,7 +52,7 @@ function replaceBackendInfoRequest(...args) {
   } = replacementGroups(args);
   const registryEntry = "codexLinuxBackendEntry";
 
-  return `async function ${fn}(${socketPath},${createApi}){let ${api}=null,${phase}="pipe-connect";try{let ${transport}=await ${nativePipeClass}.create(${socketPath});${api}=${createApi}(${transport}),${phase}="backend-info-request";let ${info}=await Promise.race([${api}.getInfo(),new Promise((codexLinuxResolve,codexLinuxReject)=>setTimeout(()=>codexLinuxReject(new Error("browser backend info request timed out")),4000))]),${registryEntry}=globalThis.__codexBrowserBackendRegistryByPath?.get?.(${socketPath});if(${registryEntry}&&${registryEntry}.type!==${info}.type)throw new Error(\`browser backend registry type mismatch for \${${socketPath}}: expected \${${registryEntry}.type}, got \${${info}.type}\`);let ${enrichedInfo}=await ${enrichInfo}(${info}).catch(${enrichError}=>(${logError}(${enrichError}),${info}));return{browser:{id:crypto.randomUUID().substring(8),api:${api},info:await ${augmentInfo}(${enrichedInfo})}}}catch(${caughtError}){return await ${api}?.close(),${logError}(${caughtError}),{failure:\`\${${phase}}/\${${formatError}(${caughtError})}\`}}}`;
+  return `async function ${fn}(${socketPath},${createApi}){let ${api}=null,${phase}="pipe-connect";try{let ${transport}=await ${nativePipeClass}.create(${socketPath});${api}=${createApi}(${transport}),${phase}="backend-info-request";let ${info}=await Promise.race([${api}.getInfo(),new Promise((codexLinuxResolve,codexLinuxReject)=>setTimeout(()=>codexLinuxReject(new Error("browser backend info request timed out")),4000))]),${registryEntry}=globalThis.__codexBrowserBackendRegistryByPath?.get?.(${socketPath});if(${registryEntry}&&${registryEntry}.type!==${info}.type)throw new Error(\`browser backend registry type mismatch for \${${socketPath}}: expected \${${registryEntry}.type}, got \${${info}.type}\`);let ${enrichedInfo}=await ${enrichInfo}(${info}).catch(${enrichError}=>(${logError}(${enrichError}),${info}));return{browser:{id:crypto.randomUUID().substring(8),api:${api},info:await ${augmentInfo}(${enrichedInfo}),pipe:${socketPath}}}}catch(${caughtError}){return await ${api}?.close(),${logError}(${caughtError}),{failure:\`\${${phase}}/\${${formatError}(${caughtError})}\`}}}`;
 }
 
 const linuxRegistryReaderRegex = new RegExp(
@@ -85,15 +85,6 @@ function replaceNonBlockingMouseMove(...args) {
   return `let ${pending}=this.api.moveMouse({tabId:${tabId},waitForArrival:!1,x:${x},y:${y}});${pending}.catch(()=>{});return`;
 }
 
-const directClickDispatchRegex = new RegExp(
-  String.raw`async clickPoint\((?<event>${IDENTIFIER})\)\{let (?<tabId>${IDENTIFIER})=(?<normalizeTab>${IDENTIFIER})\(\k<event>\.tabId\),(?<timeout>${IDENTIFIER})=(?<normalizeTimeout>${IDENTIFIER})\(\{timeout_ms:\k<event>\.timeoutMs\}\),(?<button>${IDENTIFIER})=\k<event>\.button\?\?"left",(?<loadTargets>${IDENTIFIER})=\k<event>\.loadTarget==null\|\|!(?<isLoadTarget>${IDENTIFIER})\(\k<event>\.loadTarget\)\?\[\k<tabId>\]:\[\k<event>\.loadTarget,\k<tabId>\],(?<pageLoadWait>${IDENTIFIER})=Promise\.all\(\k<loadTargets>\.map\(async (?<loadTarget>${IDENTIFIER})=>this\.cdp\.waitForPageLoadEvent\(\k<loadTarget>,\{timeoutMs:\k<timeout>\}\)\)\),(?<ignoredLoadWait>${IDENTIFIER})=\k<pageLoadWait>\.catch\(\(\)=>\{\}\);try\{await this\.dispatchMouseMove\(\k<tabId>,\k<event>\.point,\k<event>\.modifiers\);for\(let (?<index>${IDENTIFIER})=1;\k<index><=\k<event>\.clickCount;\k<index>\+=1\)await this\.dispatchMouseDown\(\{button:\k<button>,clickCount:\k<index>,modifiers:\k<event>\.modifiers,point:\k<event>\.point,tabId:\k<tabId>\}\),await this\.dispatchMouseUp\(\{button:\k<button>,clickCount:\k<index>,modifiers:\k<event>\.modifiers,point:\k<event>\.point,tabId:\k<tabId>\}\)\}catch\((?<error>${IDENTIFIER})\)\{throw await \k<ignoredLoadWait>,\k<error>\}await \k<pageLoadWait>\}(?=async dispatchMouseDown\()`,
-);
-
-function replaceDirectClickDispatch(...args) {
-  const { event, tabId, normalizeTab, button, index } = replacementGroups(args);
-  return `async clickPoint(${event}){let ${tabId}=${normalizeTab}(${event}.tabId),${button}=${event}.button??"left";await this.ui.moveMouse(${tabId},${event}.point.x,${event}.point.y);await this.cdp.call(${tabId},"Input.dispatchMouseEvent",{type:"mouseMoved",x:${event}.point.x,y:${event}.point.y,button:"none",buttons:0,modifiers:${event}.modifiers});for(let ${index}=1;${index}<=${event}.clickCount;${index}+=1)await this.dispatchMouseDown({button:${button},clickCount:${index},modifiers:${event}.modifiers,point:${event}.point,tabId:${tabId}}),await this.dispatchMouseUp({button:${button},clickCount:${index},modifiers:${event}.modifiers,point:${event}.point,tabId:${tabId}})}`;
-}
-
 const chromeProfileRootRegex = new RegExp(
   String.raw`var (?<profileRoot>${IDENTIFIER})=(?<resolve>${IDENTIFIER})\((?<homeDir>${IDENTIFIER})\(\),(?<platform>${IDENTIFIER})\(\)==="win32"\?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome"\);`,
 );
@@ -112,6 +103,24 @@ function replaceChromeBackendAllowlist(...args) {
   return `function ${fn}(){let ${value}=${readEnv}(${availableBackends});/* codexLinuxChromeBackendAllowlist */if(${value}!=null&&!${split}(${value}).includes("chrome"))${value}=${value}.length>0?\`${"${"}${value}},chrome\`:"chrome";return ${value}==null?null:${split}(${value}).filter(${isKnownBackend})}`;
 }
 
+const fileUrlPolicyRegex = new RegExp(
+  String.raw`function (?<fn>${IDENTIFIER})\((?<url>${IDENTIFIER})\)\{if\((?<allowedUrls>${IDENTIFIER})\.has\(\k<url>\)\)return!0;let (?<parsed>${IDENTIFIER});try\{\k<parsed>=new URL\(\k<url>\)\}catch\{return!1\}return \k<parsed>\.protocol==="http:"\|\|\k<parsed>\.protocol==="https:"\}`,
+);
+
+function replaceFileUrlPolicy(...args) {
+  const { fn, url, allowedUrls, parsed } = replacementGroups(args);
+  return `function ${fn}(${url}){if(${allowedUrls}.has(${url}))return!0;let ${parsed};try{${parsed}=new URL(${url})}catch{return!1}return ${parsed}.protocol==="http:"||${parsed}.protocol==="https:"||${parsed}.protocol==="file:"}`;
+}
+
+const fileChooserTimeoutCapRegex = new RegExp(
+  String.raw`(?<prefix>var (?<command>${IDENTIFIER})=(?<factory>${IDENTIFIER})\("playwright_wait_for_file_chooser",async\((?<payload>${IDENTIFIER}),(?<context>${IDENTIFIER})\)=>\{let (?<tabId>${IDENTIFIER})=(?<normalizeTabId>${IDENTIFIER})\(\k<payload>\.tab_id\),(?<timeout>${IDENTIFIER})=(?<normalizeTimeout>${IDENTIFIER})\()(?<argument>\k<payload>)(?<suffix>\);await \k<context>\.cdp\.call\(\k<tabId>,"Page\.enable"\),await \k<context>\.cdp\.call\(\k<tabId>,"Page\.setInterceptFileChooserDialog",\{enabled:!0\}\))`,
+);
+
+function replaceFileChooserTimeoutCap(...args) {
+  const { prefix, payload, suffix } = replacementGroups(args);
+  return `${prefix}{...${payload},max:12e4/* codexFileChooserTimeoutMax */}${suffix}`;
+}
+
 export const COMMON_BROWSER_CLIENT_PATCHES = [
   {
     label: "native pipe bridge",
@@ -128,8 +137,8 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
     apply: replaceBrowserAutomationGlobal,
     appliedMarkers: [
       "globalThis.browserAutomation?.env",
-      "e.browserAutomation?.setResponseMeta",
-      "e.browserAutomation?.emitImage",
+      "browserAutomation?.setResponseMeta",
+      "browserAutomation?.emitImage",
     ],
   },
   {
@@ -164,20 +173,31 @@ export const COMMON_BROWSER_CLIENT_PATCHES = [
     appliedMarkers: ["waitForArrival:!1"],
   },
   {
-    label: "Linux direct CDP click dispatch",
-    locatorStrategy: "method-body-regex-preserve-minified-names",
-    risk: "high",
-    searchRegex: directClickDispatchRegex,
-    replacement: replaceDirectClickDispatch,
-    appliedMarkers: ['type:"mouseMoved"', "this.ui.moveMouse"],
-  },
-  {
     label: "Linux Chrome profile root",
     locatorStrategy: "regex-preserve-minified-names",
     risk: "medium",
     searchRegex: chromeProfileRootRegex,
     replacement: replaceChromeProfileRoot,
     appliedMarkers: ['===\"linux\"?".config/google-chrome"'],
+  },
+  {
+    label: "file chooser timeout max",
+    locatorStrategy: "regex-preserve-minified-names",
+    risk: "medium",
+    searchRegex: fileChooserTimeoutCapRegex,
+    replacement: replaceFileChooserTimeoutCap,
+    appliedMarkers: ["codexFileChooserTimeoutMax"],
+  },
+];
+
+export const BROWSER_ONLY_BROWSER_CLIENT_PATCHES = [
+  {
+    label: "Browser file URL policy",
+    locatorStrategy: "regex-preserve-minified-names",
+    risk: "medium",
+    searchRegex: fileUrlPolicyRegex,
+    replacement: replaceFileUrlPolicy,
+    appliedMarkers: ['protocol==="file:"'],
   },
 ];
 
@@ -192,12 +212,17 @@ export const CHROME_ONLY_BROWSER_CLIENT_PATCHES = [
   },
 ];
 
-export function patchBrowserClient(browserClientPath, { includeChromePatches = false } = {}) {
+export function patchBrowserClient(
+  browserClientPath,
+  { includeChromePatches = false, includeBrowserPatches = !includeChromePatches } = {},
+) {
   patchFile(
     browserClientPath,
-    includeChromePatches
-      ? [...COMMON_BROWSER_CLIENT_PATCHES, ...CHROME_ONLY_BROWSER_CLIENT_PATCHES]
-      : COMMON_BROWSER_CLIENT_PATCHES,
+    [
+      ...COMMON_BROWSER_CLIENT_PATCHES,
+      ...(includeBrowserPatches ? BROWSER_ONLY_BROWSER_CLIENT_PATCHES : []),
+      ...(includeChromePatches ? CHROME_ONLY_BROWSER_CLIENT_PATCHES : []),
+    ],
     "browser-client",
   );
 }

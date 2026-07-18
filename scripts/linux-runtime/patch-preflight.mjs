@@ -1,5 +1,6 @@
 import {
   linuxPatchFeatures,
+  synchronizeSharedBundleSources,
   verifyLinuxPatchSource,
 } from "./features/index.mjs";
 import { describeLinuxPatchFeature } from "./patch-contracts.mjs";
@@ -28,7 +29,11 @@ export function probeLinuxRuntimePatches(initialBundleSources, context) {
         continue;
       }
 
-      const patchedSources = feature.apply(cloneBundleSources(workingSources), context);
+      const patchedSources = synchronizeSharedBundleSources(
+        workingSources,
+        feature.apply(cloneBundleSources(workingSources), context),
+        context,
+      );
       feature.verify(patchedSources, context);
       workingSources = patchedSources;
       results.push({

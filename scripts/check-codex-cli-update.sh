@@ -54,6 +54,18 @@ download_text() {
     return 1
 }
 
+download_github_api() {
+    local endpoint="$1"
+
+    if command -v gh >/dev/null 2>&1; then
+        if GH_PROMPT_DISABLED=1 gh api "$endpoint"; then
+            return
+        fi
+    fi
+
+    download_text "https://api.github.com/$endpoint"
+}
+
 resolve_latest_version() {
     local normalized
     normalized="$(normalize_version "$RELEASE")"
@@ -64,7 +76,7 @@ resolve_latest_version() {
     fi
 
     local release_json resolved
-    release_json="$(download_text "https://api.github.com/repos/openai/codex/releases/latest" 2>/dev/null)" || return 1
+    release_json="$(download_github_api "repos/openai/codex/releases/latest" 2>/dev/null)" || return 1
     resolved="$(printf '%s\n' "$release_json" | sed -n 's/.*"tag_name":[[:space:]]*"rust-v\([^"]*\)".*/\1/p' | head -n 1)"
 
     [ -n "$resolved" ] || return 1

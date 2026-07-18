@@ -373,6 +373,8 @@ async function openPath(context, args) {
 
   const command = context.env.CODEX_DOLPHIN_BIN || "dolphin";
   const mode = args.mode ?? "default";
+  // Default opens must stay on the Dolphin CLI path so the user-level wrapper
+  // and Dolphin's window policy own the single-process/multi-window behavior.
   const commandArgs = buildDolphinOpenArgs(mode, targetPath);
   const launch = await context.runDetached(command, commandArgs, { env: dolphinLaunchEnv(context) });
   return { ok: true, action: "open_path", path: targetPath, mode, command, args: commandArgs, ...launch };
@@ -383,6 +385,8 @@ async function revealPath(context, args) {
   await requireExistingPath(targetPath);
 
   const command = context.env.CODEX_DOLPHIN_BIN || "dolphin";
+  // Reveal uses Dolphin's CLI selection flag; avoid generic file-manager D-Bus
+  // here so the installed dolphin wrapper and window policy remain in control.
   const commandArgs = ["--select", targetPath];
   const launch = await context.runDetached(command, commandArgs, { env: dolphinLaunchEnv(context) });
   return { ok: true, action: "reveal_path", path: targetPath, command, args: commandArgs, ...launch };

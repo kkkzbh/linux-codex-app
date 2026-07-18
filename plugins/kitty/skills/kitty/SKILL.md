@@ -1,27 +1,27 @@
 ---
 name: kitty
-description: Use numbered managed or adopted kitty terminals for listing terminal windows, unified terminal input, and screen inspection.
+description: Use the singleton kitty OS window for listing tabs/windows, unified terminal input, and screen inspection.
 ---
 
 # Kitty
 
 Use the kitty tools when the user wants Codex to use a visible local kitty terminal on Linux.
 
-Use `kitty_list` before choosing among existing numbered terminals, when the user asks what kitty windows exist, or after creating a split/window/tab so you can report the new window id. Treat `short_id` such as `K1` as the user-facing selector.
+Use `kitty_list` before choosing among existing tabs/windows, when the user asks what kitty windows exist, or after creating a tab/window so you can report the new tab and window ids. Treat `short_id` such as `T3` as the user-facing tab selector; use `window_id` when input must target one exact shell window.
 
-Use `kitty_open` when the user wants a visible numbered kitty terminal but there is no command, text, or key input to send yet. `kitty_open` opens a managed kitty in the background without taking desktop focus, and returns the `short_id` and window metadata to use in later calls. On KWin, managed opens best-effort restore focus to the previously active window if the terminal is activated anyway.
+Use `kitty_open` when the user wants a visible kitty terminal but there is no command, text, or key input to send yet. `kitty_open` opens a new tab in the singleton kitty OS window and returns the `short_id`, `tab_id`, and `window_id` metadata to use in later calls.
 
 Use `kitty_send` for all terminal input. It has three mutually exclusive modes:
 
-- `command`: shell commands. Example: `kitty_send({ "short_id": "K1", "command": "pwd" })`. A newline is added automatically, the default wait strategy is `quiet`, and the visible terminal shows only the real command and output.
-- `text`: raw text for interactive programs, ssh, tmux, vim/nvim, prompts, and REPLs. Example: `kitty_send({ "short_id": "K1", "text": "i" })`.
-- `key`: key chords such as `ctrl+c`, `enter`, or `esc`. Example: `kitty_send({ "short_id": "K1", "key": "ctrl+c" })`.
+- `command`: shell commands. Example: `kitty_send({ "short_id": "T3", "command": "pwd" })`. A newline is added automatically, the default wait strategy is `quiet`, and the visible terminal shows only the real command and output.
+- `text`: raw text for interactive programs, ssh, tmux, vim/nvim, prompts, and REPLs. Example: `kitty_send({ "short_id": "T3", "text": "i" })`.
+- `key`: key chords such as `ctrl+c`, `enter`, or `esc`. Example: `kitty_send({ "short_id": "T3", "key": "ctrl+c" })`.
 
 `kitty_send` returns terminal feedback, not process-level stdout/stderr/exit code. If a command's status matters, inspect the output and, when needed, send another command such as `echo $?`.
 
 Use `wait_for` to control feedback: `delay`, `change`, `quiet`, `regex`, or `none`. Prefer `quiet` for ordinary shell commands, `regex` when waiting for a known prompt or phrase, and `delay` for TUI or raw interaction.
 
-Use `kitty_read` to inspect what a numbered terminal currently looks like without sending input. Prefer `mode: "screen"` when the user asks what is visible, `tail` for logs, and `include_layout: true` when window metadata matters.
+Use `kitty_read` to inspect what the active singleton tab/window currently looks like without sending input. Prefer `mode: "screen"` when the user asks what is visible, `tail` for logs, and `include_layout: true` when tab/window metadata matters.
 
 Do not expect `kitty_send` to know when remote ssh commands, tmux pane commands, or TUI actions have completed. In those contexts, use `text` or `key`, read the screen feedback, and continue interactively.
 
