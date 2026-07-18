@@ -439,6 +439,61 @@ function writeExecutable(file, source) {
   chmodSync(file, 0o755);
 }
 
+function writeFakeCmake(file) {
+  writeExecutable(
+    file,
+    `#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [ "$1" = "-S" ]; then
+  build_dir=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-B" ]; then
+      shift
+      build_dir="$1"
+    fi
+    shift
+  done
+  [ -n "$build_dir" ]
+  mkdir -p "$build_dir"
+  exit 0
+fi
+
+if [ "$1" = "--build" ]; then
+  build_dir="$2"
+  for helper in codex-computer-use-screenshot codex-computer-use-eis; do
+    cat > "$build_dir/$helper" <<'HELPER'
+#!/usr/bin/env bash
+exit 0
+HELPER
+    chmod +x "$build_dir/$helper"
+  done
+  cat > "$build_dir/codex-computer-use-glow-theme" <<'GLOW'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+base_theme="$1"
+base_size="$2"
+theme_dir="$3"
+theme_name="$4"
+mkdir -p "$theme_dir/cursors"
+cat > "$theme_dir/index.theme" <<EOF
+[Icon Theme]
+Name=$theme_name
+X-Codex-BaseTheme=$base_theme
+X-Codex-BaseSize=$base_size
+X-Codex-Animation=outward-edge-diffusion
+EOF
+touch "$theme_dir/cursors/Normal"
+GLOW
+  chmod +x "$build_dir/codex-computer-use-glow-theme"
+  exit 0
+fi
+
+exit 1
+`,
+  );
+}
+
 function testAccessScriptInstallsNativeHelpersAndScreenshotDesktopEntry() {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "codex-computer-use-access-test-"));
   try {
@@ -451,7 +506,15 @@ function testAccessScriptInstallsNativeHelpersAndScreenshotDesktopEntry() {
     writeFileSync(path.join(tempDir, ".keep"), "");
     spawnSync("mkdir", ["-p", fakeBin, dataHome, configHome], { stdio: "pipe" });
 
-    for (const command of ["systemctl", "update-desktop-database", "kbuildsycoca6", "kbuildsycoca5"]) {
+    writeFakeCmake(path.join(fakeBin, "cmake"));
+    for (const command of [
+      "systemctl",
+      "update-desktop-database",
+      "kbuildsycoca6",
+      "kbuildsycoca5",
+      "kreadconfig6",
+      "plasma-apply-cursortheme",
+    ]) {
       writeExecutable(path.join(fakeBin, command), "#!/usr/bin/env bash\nexit 0\n");
     }
 
