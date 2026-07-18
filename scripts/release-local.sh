@@ -69,19 +69,25 @@ sign_rpms_if_possible() {
     fi
 
     require_cmd rpmsign
+    require_cmd rpmkeys
     info "Signing RPMs with key: $RPM_SIGNING_KEY_ID"
-    rpmsign --key-id "$RPM_SIGNING_KEY_ID" --addsign "$DIST_DIR"/*.rpm
+    rpmsign --key-id "$RPM_SIGNING_KEY_ID" --addsign "$DIST_DIR"/*.rpm \
+        || error "Failed to sign RPM artifacts"
 
     local public_key_file="$REPO_ROOT/.build/RPM-GPG-KEY-linux-codex-app"
     mkdir -p "$REPO_ROOT/.build"
-    gpg --armor --export "$RPM_SIGNING_KEY_ID" > "$public_key_file"
-    cp "$public_key_file" "$REPO_ROOT/packaging/rpm/RPM-GPG-KEY-linux-codex-app"
+    gpg --armor --export "$RPM_SIGNING_KEY_ID" > "$public_key_file" \
+        || error "Failed to export RPM signing public key"
+    cp "$public_key_file" "$REPO_ROOT/packaging/rpm/RPM-GPG-KEY-linux-codex-app" \
+        || error "Failed to stage RPM signing public key"
 
     local rpmdb
     rpmdb="$(mktemp -d "${TMPDIR:-/tmp}/linux-codex-app-rpmdb.XXXXXX")"
-    rpm --dbpath "$rpmdb" --initdb
-    rpmkeys --dbpath "$rpmdb" --import "$public_key_file"
-    LC_ALL=C rpm -K --dbpath "$rpmdb" "$DIST_DIR"/*.rpm | tee "$REPO_ROOT/.build/rpm-signature-checks.txt"
+    rpmkeys --dbpath "$rpmdb" --import "$public_key_file" \
+        || error "Failed to initialize the isolated RPM keyring"
+    LC_ALL=C rpmkeys --checksig --dbpath "$rpmdb" "$DIST_DIR"/*.rpm \
+        | tee "$REPO_ROOT/.build/rpm-signature-checks.txt" \
+        || error "RPM signature verification command failed"
     while IFS= read -r line; do
         case "$line" in
             *": digests signatures OK") ;;
@@ -210,7 +216,6 @@ publish_pages_repo() {
 }
 
 require_cmd node
-require_cmd rpm
 
 if [ -z "${RPM_SIGNING_KEY_ID:-}" ] && command -v gpg >/dev/null 2>&1; then
     discovered_key="$(
